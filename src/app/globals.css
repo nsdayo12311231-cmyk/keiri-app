@@ -3,11 +3,40 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  
+  /* Keiri App Color Palette */
+  --primary: #1a365d;
+  --primary-hover: #2d5a87;
+  --secondary: #3182ce;
+  --success: #38a169;
+  --warning: #ed8936;
+  --destructive: #e53e3e;
+  --muted: #f7fafc;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #3182ce;
+  --radius: 0.5rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: #ffffff;
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: #ffffff;
+  --color-muted: var(--muted);
+  --color-muted-foreground: #64748b;
+  --color-accent: var(--muted);
+  --color-accent-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius: var(--radius);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,6 +45,11 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --primary: #2d5a87;
+    --primary-hover: #4a90e2;
+    --muted: #1a202c;
+    --border: #2d3748;
+    --input: #2d3748;
   }
 }
 

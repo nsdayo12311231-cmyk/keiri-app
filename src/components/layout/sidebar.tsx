@@ -10,6 +10,9 @@ import {
   Calculator,
   FileText,
   CreditCard,
+  Camera,
+  CheckCheck,
+  Download,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -32,6 +35,11 @@ const navItems: NavItem[] = [
     icon: Receipt,
   },
   {
+    href: '/approval',
+    label: '取引承認',
+    icon: CheckCheck,
+  },
+  {
     href: '/journal',
     label: '仕訳帳',
     icon: FileText,
@@ -45,6 +53,21 @@ const navItems: NavItem[] = [
     href: '/reports',
     label: 'レポート',
     icon: PieChart,
+  },
+  {
+    href: '/tax',
+    label: '税務',
+    icon: Calculator,
+  },
+  {
+    href: '/export',
+    label: 'データ出力',
+    icon: Download,
+  },
+  {
+    href: '/receipts',
+    label: 'レシート',
+    icon: Camera,
   },
   {
     href: '/settings',

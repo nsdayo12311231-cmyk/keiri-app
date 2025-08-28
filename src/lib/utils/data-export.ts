@@ -11,7 +11,7 @@ export interface TransactionData {
   type: 'income' | 'expense';
   amount: number;
   description: string;
-  category?: string;
+  categoryId?: string;
   categoryName?: string;
   isBusiness: boolean;
   merchantName?: string;
@@ -36,7 +36,8 @@ export interface ExportOptions {
  */
 export function exportTransactionsToCSV(
   transactions: TransactionData[],
-  filename?: string
+  filename?: string,
+  onSuccess?: (title: string, message: string) => void
 ): void {
   const headers = [
     '日付',
@@ -58,7 +59,7 @@ export function exportTransactionsToCSV(
       transaction.type === 'income' ? '収入' : '支出',
       transaction.amount.toString(),
       `"${(transaction.description || '').replace(/"/g, '""')}"`, // CSV escape
-      transaction.category || '',
+      transaction.categoryName || '',
       `"${(transaction.categoryName || '').replace(/"/g, '""')}"`,
       transaction.isBusiness ? '事業用' : '個人用',
       `"${(transaction.merchantName || '').replace(/"/g, '""')}"`,
@@ -71,7 +72,7 @@ export function exportTransactionsToCSV(
     type: 'text/csv;charset=utf-8;' 
   }); // UTF-8 BOM for Japanese characters
   
-  downloadFile(blob, filename || `取引データ_${getCurrentDateString()}.csv`);
+  downloadFile(blob, filename || `取引データ_${getCurrentDateString()}.csv`, onSuccess);
 }
 
 /**
@@ -108,7 +109,7 @@ export function exportTransactionsToExcel(
     tableHTML += `<td>${transaction.type === 'income' ? '収入' : '支出'}</td>`;
     tableHTML += `<td>${transaction.amount}</td>`;
     tableHTML += `<td>${transaction.description || ''}</td>`;
-    tableHTML += `<td>${transaction.category || ''}</td>`;
+    tableHTML += `<td>${transaction.category_id || ''}</td>`;
     tableHTML += `<td>${transaction.categoryName || ''}</td>`;
     tableHTML += `<td>${transaction.isBusiness ? '事業用' : '個人用'}</td>`;
     tableHTML += `<td>${transaction.merchantName || ''}</td>`;
@@ -141,7 +142,7 @@ export function exportReportToCSV(reportData: {
   }>;
   businessExpenses: number;
   personalExpenses: number;
-}, filename?: string): void {
+}, filename?: string, onSuccess?: (title: string, message: string) => void): void {
   
   const csvLines = [
     '# 財務レポート',
@@ -169,7 +170,7 @@ export function exportReportToCSV(reportData: {
     type: 'text/csv;charset=utf-8;' 
   });
 
-  downloadFile(blob, filename || `財務レポート_${reportData.period}_${getCurrentDateString()}.csv`);
+  downloadFile(blob, filename || `財務レポート_${reportData.period}_${getCurrentDateString()}.csv`, onSuccess);
 }
 
 /**
@@ -247,13 +248,13 @@ export function exportReceiptsToCSV(receipts: Array<{
   amount: number;
   description: string;
   merchantName: string;
-  category?: string;
+  categoryId?: string;
   categoryName?: string;
   isBusiness: boolean;
   imageUrl?: string;
   ocrText?: string;
   confidence?: number;
-}>, filename?: string): void {
+}>, filename?: string, onSuccess?: (title: string, message: string) => void): void {
 
   const headers = [
     '日付',
@@ -275,7 +276,7 @@ export function exportReceiptsToCSV(receipts: Array<{
       receipt.amount.toString(),
       `"${(receipt.description || '').replace(/"/g, '""')}"`,
       `"${(receipt.merchantName || '').replace(/"/g, '""')}"`,
-      receipt.category || '',
+      receipt.category || ''
       `"${(receipt.categoryName || '').replace(/"/g, '""')}"`,
       receipt.isBusiness ? '事業用' : '個人用',
       receipt.imageUrl || '',
@@ -288,7 +289,7 @@ export function exportReceiptsToCSV(receipts: Array<{
     type: 'text/csv;charset=utf-8;' 
   });
   
-  downloadFile(blob, filename || `レシートデータ_${getCurrentDateString()}.csv`);
+  downloadFile(blob, filename || `レシートデータ_${getCurrentDateString()}.csv`, onSuccess);
 }
 
 /**
@@ -378,9 +379,65 @@ export function generateImportTemplate(type: 'transactions' | 'receipts'): void 
 }
 
 /**
+ * デバイス種別の検出
+ */
+function detectDevice(): 'ios' | 'android' | 'desktop' {
+  const userAgent = navigator.userAgent.toLowerCase();
+  
+  if (/iphone|ipad|ipod/.test(userAgent)) {
+    return 'ios';
+  } else if (/android/.test(userAgent)) {
+    return 'android';
+  } else {
+    return 'desktop';
+  }
+}
+
+/**
+ * 保存先案内メッセージの生成
+ */
+export function getSaveLocationMessage(filename: string): { title: string; message: string } {
+  const device = detectDevice();
+  
+  switch (device) {
+    case 'ios':
+      return {
+        title: 'CSVファイルをダウンロードしました',
+        message: `📱 iPhone/iPad での保存先:
+• 「ファイル」アプリ → 「ダウンロード」フォルダ
+• Safari: 画面下のダウンロードボタン（↓）をタップ
+• Chrome: メニュー → 「ダウンロード」
+
+ファイル名: ${filename}`
+      };
+      
+    case 'android':
+      return {
+        title: 'CSVファイルをダウンロードしました',
+        message: `📱 Android での保存先:
+• 「ファイル」または「Files」アプリ → 「Download」フォルダ  
+• 通知パネルからダウンロード完了通知をタップ
+• ブラウザのメニュー → 「ダウンロード」
+
+ファイル名: ${filename}`
+      };
+      
+    default:
+      return {
+        title: 'CSVファイルをダウンロードしました', 
+        message: `💻 デスクトップでの保存先:
+• ダウンロードフォルダ
+• ブラウザで設定した保存先
+
+ファイル名: ${filename}`
+      };
+  }
+}
+
+/**
  * ファイルダウンロード処理
  */
-function downloadFile(blob: Blob, filename: string): void {
+function downloadFile(blob: Blob, filename: string, onSuccess?: (title: string, message: string) => void): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -389,6 +446,14 @@ function downloadFile(blob: Blob, filename: string): void {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+  
+  // 成功コールバックを実行
+  if (onSuccess) {
+    const { title, message } = getSaveLocationMessage(filename);
+    setTimeout(() => {
+      onSuccess(title, message);
+    }, 300);
+  }
 }
 
 /**

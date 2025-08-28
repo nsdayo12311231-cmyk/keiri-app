@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/header';
@@ -45,7 +46,6 @@ interface ExportData {
   transaction_date: string;
   description: string;
   amount: number;
-  transaction_type: 'expense' | 'revenue';
   is_business: boolean;
   is_confirmed: boolean;
   account_categories?: {
@@ -86,6 +86,7 @@ const MONTHS = [
 export default function ExportPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   
   // Form state
   const [periodType, setPeriodType] = useState<'year' | 'month' | 'custom'>('year');
@@ -150,7 +151,6 @@ export default function ExportPage() {
         .select(`
           id,
           amount,
-          transaction_type,
           is_business,
           is_confirmed,
           transaction_date,
@@ -191,7 +191,8 @@ export default function ExportPage() {
       transactions?.forEach(tx => {
         const amount = Number(tx.amount);
         
-        if (tx.transaction_type === 'revenue') {
+        if (amount > 0) {
+          // Positive amounts are revenue
           summary.totalRevenue += amount;
           if (tx.is_business) {
             summary.businessRevenue += amount;
@@ -199,11 +200,13 @@ export default function ExportPage() {
             summary.personalRevenue += amount;
           }
         } else {
-          summary.totalExpenses += amount;
+          // Negative amounts are expenses (convert to positive)
+          const expenseAmount = Math.abs(amount);
+          summary.totalExpenses += expenseAmount;
           if (tx.is_business) {
-            summary.businessExpenses += amount;
+            summary.businessExpenses += expenseAmount;
           } else {
-            summary.personalExpenses += amount;
+            summary.personalExpenses += expenseAmount;
           }
         }
 
@@ -224,7 +227,7 @@ export default function ExportPage() {
     return data.map(item => ({
       id: item.id,
       date: item.transaction_date,
-      type: item.transaction_type === 'expense' ? 'expense' : 'income',
+      type: Number(item.amount) < 0 ? 'expense' : 'income',
       amount: item.amount,
       description: item.description,
       category: item.account_categories?.code,
@@ -260,7 +263,7 @@ export default function ExportPage() {
         description: r.description || '',
         merchantName: r.merchant_name || '',
         category: r.category,
-        categoryName: r.category_name,
+        categoryName: r.description,
         isBusiness: r.is_business || false,
         imageUrl: r.image_url,
         ocrText: r.ocr_text,
@@ -293,11 +296,11 @@ export default function ExportPage() {
         
       if (error) throw error;
       
-      const revenues = transactions?.filter(t => t.transaction_type === 'revenue') || [];
-      const expenses = transactions?.filter(t => t.transaction_type === 'expense') || [];
+      const revenues = transactions?.filter(t => Number(t.amount) > 0) || [];
+      const expenses = transactions?.filter(t => Number(t.amount) < 0) || [];
       
       const totalIncome = revenues.reduce((sum, t) => sum + Number(t.amount), 0);
-      const businessExpenses = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+      const businessExpenses = expenses.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
       
       const taxData = {
         year: selectedYear.toString(),
@@ -404,7 +407,6 @@ export default function ExportPage() {
           transaction_date,
           description,
           amount,
-          transaction_type,
           is_business,
           is_confirmed,
           account_categories (
@@ -438,17 +440,22 @@ export default function ExportPage() {
       const transactionData = convertToTransactionData(transactions);
       
       if (exportFormat === 'csv') {
-        exportTransactionsToCSV(transactionData);
+        exportTransactionsToCSV(
+          transactionData, 
+          undefined, 
+          (title, message) => {
+            showToast('success', title, message);
+          }
+        );
       } else {
         exportTransactionsToExcel(transactionData);
       }
 
       setLastExportDate(new Date().toISOString());
-      alert(`${transactions.length}件のデータをエクスポートしました`);
       
     } catch (error) {
       console.error('Export error:', error);
-      alert('エクスポート中にエラーが発生しました');
+      showToast('error', 'エクスポートエラー', 'エクスポート中にエラーが発生しました');
     } finally {
       setIsGenerating(false);
     }

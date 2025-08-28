@@ -250,7 +250,7 @@ export class SmartClassifier {
           this.userLearnings.set(item.merchant_key, {
             merchantName: item.merchant_name,
             categoryId: item.category_id,
-            categoryName: item.category_name,
+            categoryName: item.name,
             isBusiness: item.is_business,
             correctionCount: item.correction_count,
             lastCorrected: item.last_corrected
@@ -267,9 +267,9 @@ export class SmartClassifier {
       // 過去のtransactionsから統計を計算
       const { data, error } = await supabase
         .from('transactions')
-        .select('description, category, amount')
+        .select('description, category_id, amount')
         .eq('user_id', this.userId)
-        .not('category', 'is', null);
+        .not('category_id', 'is', null);
 
       if (error || !data) return;
 
@@ -290,7 +290,7 @@ export class SmartClassifier {
         }
 
         const merchantStat = stats.get(key)!;
-        const category = transaction.category;
+        const category = transaction.category_id;
         
         if (!merchantStat.categoryStats[category]) {
           merchantStat.categoryStats[category] = { count: 0, confidence: 0 };

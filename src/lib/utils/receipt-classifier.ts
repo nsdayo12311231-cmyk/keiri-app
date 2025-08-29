@@ -12,7 +12,7 @@ export interface ClassificationRule {
 const CLASSIFICATION_RULES: ClassificationRule[] = [
   // 事業用 - 旅費交通費
   {
-    keywords: ['電車', '地下鉄', 'JR', '新幹線', 'タクシー', 'バス', '駐車場', 'パーキング', 'ガソリン', 'ETC', 'ENEOS', 'Shell', 'JOMO', '出光'],
+    keywords: ['電車', '地下鉄', 'JR', '新幹線', 'タクシー', 'バス', '駐車場', 'パーキング', 'らっぽーと', 'ららぽーと', '駐車料金', 'ガソリン', 'ETC', 'ENEOS', 'Shell', 'JOMO', '出光'],
     categoryId: 'cat-104',
     categoryName: '旅費交通費',
     confidence: 0.9,

@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/header';
 import { Sidebar } from '@/components/layout/sidebar';
 import { BottomNav } from '@/components/layout/bottom-nav';
+import { SidebarGuide } from '@/components/layout/sidebar-guide';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,6 @@ interface Transaction {
   is_business: boolean;
   created_at: string;
   category_id?: string;
-  transaction_type?: 'expense' | 'revenue';
 }
 
 export default function TransactionsPage() {
@@ -52,7 +52,7 @@ export default function TransactionsPage() {
         setLoadingTransactions(true);
         let query = supabase
           .from('transactions')
-          .select('id, amount, description, transaction_date, is_business, created_at, category_id, transaction_type')
+          .select('id, amount, description, transaction_date, is_business, created_at, category_id')
           .eq('user_id', user.id);
         
         // フィルタリング
@@ -106,7 +106,7 @@ export default function TransactionsPage() {
         try {
           const { data, error } = await supabase
             .from('transactions')
-            .select('id, amount, description, transaction_date, is_business, created_at, category_id, transaction_type')
+            .select('id, amount, description, transaction_date, is_business, created_at, category_id')
             .eq('user_id', user.id)
             .order('transaction_date', { ascending: false })
             .order('created_at', { ascending: false });
@@ -327,6 +327,9 @@ export default function TransactionsPage() {
             </div>
           </main>
         </div>
+        
+        {/* サイドバーガイド */}
+        <SidebarGuide />
       </div>
 
       {/* モバイルレイアウト */}

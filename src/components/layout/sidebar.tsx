@@ -13,6 +13,7 @@ import {
   Camera,
   CheckCheck,
   Download,
+  Upload,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -50,6 +51,11 @@ const navItems: NavItem[] = [
     icon: CreditCard,
   },
   {
+    href: '/import',
+    label: 'ファイルインポート',
+    icon: Upload,
+  },
+  {
     href: '/reports',
     label: 'レポート',
     icon: PieChart,
@@ -83,9 +89,27 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
 
+  // メニュー項目のdata属性マッピング
+  const getMenuDataAttribute = (href: string) => {
+    const pathToDataAttr: Record<string, string> = {
+      '/dashboard': 'dashboard',
+      '/receipts': 'receipts', 
+      '/approval': 'approval',
+      '/reports': 'reports',
+      '/import': 'import',
+      '/transactions': 'transactions',
+      '/journal': 'journal',
+      '/accounts': 'accounts',
+      '/tax': 'tax',
+      '/export': 'export',
+      '/settings': 'settings'
+    };
+    return pathToDataAttr[href] || '';
+  };
+
   return (
     <div className={cn(
-      'hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0',
+      'hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 sidebar-container',
       className
     )}>
       <div className="flex-1 flex flex-col min-h-0 border-r border-border bg-background">
@@ -93,7 +117,7 @@ export function Sidebar({ className }: SidebarProps) {
         <div className="flex items-center h-16 flex-shrink-0 px-4 border-b border-border">
           <Link href="/" className="flex items-center space-x-2">
             <Calculator className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold text-foreground">Keiri</span>
+            <span className="text-xl font-bold text-foreground">Keiri App</span>
           </Link>
         </div>
         
@@ -102,20 +126,22 @@ export function Sidebar({ className }: SidebarProps) {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
+            const dataMenu = getMenuDataAttribute(item.href);
             
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                data-menu={dataMenu}
                 className={cn(
-                  'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                  'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-all duration-300',
                   isActive
                     ? 'bg-primary text-primary-foreground'
                     : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
               >
                 <Icon className={cn(
-                  'mr-3 h-5 w-5 flex-shrink-0',
+                  'mr-3 h-5 w-5 flex-shrink-0 transition-transform duration-300 group-hover:scale-110',
                   isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-accent-foreground'
                 )} />
                 {item.label}

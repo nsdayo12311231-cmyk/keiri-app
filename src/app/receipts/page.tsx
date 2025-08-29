@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -10,7 +11,10 @@ import { BottomNav } from '@/components/layout/bottom-nav';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ReceiptUpload } from '@/components/receipts/receipt-upload';
-import { Calculator, Camera, FileText, Calendar, Tag, Building2, User, Eye, Edit2, Check, X, Trash2, CheckSquare, Square } from 'lucide-react';
+import { PhotographyHelp } from '@/components/receipts/photography-help';
+import { RealtimeProgress } from '@/components/receipts/realtime-progress';
+import { SidebarGuide } from '@/components/layout/sidebar-guide';
+import { Calculator, Camera, FileText, Calendar, Tag, Building2, User, Eye, Edit2, Check, X, Trash2, CheckSquare, Square, AlertTriangle, Search, Filter, SortAsc, SortDesc, Download, FileDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ReceiptOCR } from '@/lib/ocr/vision-api';
 import { autoClassifyReceipt } from '@/lib/utils/receipt-classifier';
@@ -47,12 +51,112 @@ export default function ReceiptsPage() {
   const [selectedReceipts, setSelectedReceipts] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [openaiApiKey, setOpenaiApiKey] = useState<string>('');
+  const [showRealtimeProgress, setShowRealtimeProgress] = useState(false);
+  const [currentUploadFiles, setCurrentUploadFiles] = useState<File[]>([]);
+  // 処理結果表示は削除
+  // const [processingResults, setProcessingResults] = useState<{successCount: number, failedFiles: Array<{fileName: string, error: string}>, processedReceipts: Array<{fileName: string, data: ExtractedData}>}>({ successCount: 0, failedFiles: [], processedReceipts: [] });
+  const [lastUploadTime, setLastUploadTime] = useState<Date | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [filterDateRange, setFilterDateRange] = useState<{start: string, end: string}>({start: '', end: ''});
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'merchant' | 'upload'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // スタイル定義
+  const newReceiptStyles = `bg-gradient-to-br from-slate-800 via-emerald-800 to-slate-900 border-emerald-600/50 text-slate-100 shadow-lg 
+    [&_*]:text-slate-100 [&_.text-muted-foreground]:!text-slate-300 [&_.text-green-600]:!text-emerald-300 
+    [&_.text-blue-600]:!text-slate-300 [&_.text-purple-600]:!text-slate-300 [&_.text-orange-600]:!text-amber-300`;
+  
+  const existingReceiptStyles = `bg-gradient-to-br from-slate-800 via-blue-900 to-slate-900 border-blue-600/50 text-slate-100 shadow-lg 
+    [&_*]:text-slate-100 [&_.text-muted-foreground]:!text-slate-300 [&_.text-green-600]:!text-green-300 
+    [&_.text-blue-600]:!text-blue-300 [&_.text-purple-600]:!text-purple-300 [&_.text-orange-600]:!text-amber-300`;
+  
+  const selectedReceiptStyles = 'bg-blue-50 border-blue-400 shadow-md';
+
+  // レシートのフィルタリング・ソート機能
+  const filteredAndSortedReceipts = React.useMemo(() => {
+    let filtered = receipts;
+
+    // 検索フィルタ
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(receipt => 
+        receipt.extracted_data?.description?.toLowerCase().includes(query) ||
+        receipt.extracted_data?.merchantName?.toLowerCase().includes(query) ||
+        receipt.filename?.toLowerCase().includes(query) ||
+        receipt.ocr_text?.toLowerCase().includes(query)
+      );
+    }
+
+    // カテゴリフィルタ
+    if (filterCategory !== 'all') {
+      filtered = filtered.filter(receipt => 
+        receipt.extracted_data?.classification?.categoryName === filterCategory
+      );
+    }
+
+    // 日付範囲フィルタ
+    if (filterDateRange.start) {
+      filtered = filtered.filter(receipt => {
+        const receiptDate = receipt.extracted_data?.date || receipt.upload_date;
+        return receiptDate >= filterDateRange.start;
+      });
+    }
+    if (filterDateRange.end) {
+      filtered = filtered.filter(receipt => {
+        const receiptDate = receipt.extracted_data?.date || receipt.upload_date;
+        return receiptDate <= filterDateRange.end;
+      });
+    }
+
+    // ソート
+    filtered.sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (sortBy) {
+        case 'amount':
+          aValue = a.extracted_data?.amount || 0;
+          bValue = b.extracted_data?.amount || 0;
+          break;
+        case 'merchant':
+          aValue = a.extracted_data?.merchantName || '';
+          bValue = b.extracted_data?.merchantName || '';
+          break;
+        case 'upload':
+          aValue = a.upload_date;
+          bValue = b.upload_date;
+          break;
+        case 'date':
+        default:
+          aValue = a.extracted_data?.date || a.upload_date;
+          bValue = b.extracted_data?.date || b.upload_date;
+          break;
+      }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    return filtered;
+  }, [receipts, searchQuery, filterCategory, filterDateRange, sortBy, sortOrder]);
+
+  // 利用可能なカテゴリ一覧を取得
+  const availableCategories = React.useMemo(() => {
+    const categories = new Set<string>();
+    receipts.forEach(receipt => {
+      if (receipt.extracted_data?.classification?.categoryName) {
+        categories.add(receipt.extracted_data.classification.categoryName);
+      }
+    });
+    return Array.from(categories).sort();
+  }, [receipts]);
 
   useEffect(() => {
     if (!loading && !user) {
-      console.log('User not authenticated, redirecting...'); // デバッグログ
-      // 一時的に認証チェックを無効化（テスト用）
-      // router.push('/auth/signin');
+      router.push('/auth/signin');
     }
   }, [user, loading, router]);
 
@@ -61,6 +165,39 @@ export default function ReceiptsPage() {
       fetchReceipts();
     }
   }, [user]);
+
+  // 新しいレシートかどうかを判定する関数
+  const isNewReceipt = (receiptDate: string) => {
+    if (!lastUploadTime) return false;
+    const receiptUploadTime = new Date(receiptDate);
+    const timeDiff = receiptUploadTime.getTime() - lastUploadTime.getTime();
+    return timeDiff >= -60000; // 60秒以内にアップロードされたレシートを新規とする
+  };
+
+  // 重複レシートをチェックする関数
+  const checkDuplicateReceipt = (newData: ExtractedData, existingReceipts: Receipt[]): Receipt | null => {
+    if (!newData.amount || !newData.date || !newData.merchantName) {
+      return null; // 必要なデータが不足している場合はチェックしない
+    }
+
+    return existingReceipts.find(receipt => {
+      const existing = receipt.extracted_data;
+      if (!existing.amount || !existing.date || !existing.merchantName) {
+        return false;
+      }
+
+      // 金額が完全一致
+      const amountMatch = existing.amount === newData.amount;
+      
+      // 日付が完全一致（文字列として比較）
+      const dateMatch = existing.date === newData.date;
+      
+      // 店舗名が完全一致（大文字小文字を無視）
+      const merchantMatch = existing.merchantName.toLowerCase().trim() === newData.merchantName.toLowerCase().trim();
+
+      return amountMatch && dateMatch && merchantMatch;
+    }) || null;
+  };
 
   const fetchReceipts = async () => {
     if (!user) return;
@@ -89,15 +226,47 @@ export default function ReceiptsPage() {
     extractedData: any
   ) => {
     if (!user) {
-      console.log('No user - cannot save to database');
       return;
     }
 
     try {
+      // Supabase Storageに画像を保存
+      let imageUrl = null;
+      try {
+        // Base64をBlobに変換
+        const base64Data = imageBase64.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/jpeg' });
+        
+        // Supabase Storageにアップロード
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('receipts')
+          .upload(`${user.id}/${fileName}`, blob, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (uploadError) {
+          console.error('画像アップロードエラー:', uploadError);
+        } else {
+          // 公開URLを取得
+          const { data: urlData } = supabase.storage
+            .from('receipts')
+            .getPublicUrl(uploadData.path);
+          imageUrl = urlData.publicUrl;
+        }
+      } catch (uploadError) {
+        console.error('画像アップロード処理エラー:', uploadError);
+      }
+
       // AI分類とキーワード分類のハイブリッド実行
       let classificationResult = null;
       if (extractedData.amount && extractedData.amount > 0) {
-        console.log('🤖 ハイブリッドAI分類を試行中...');
         
         // 1. OpenAI分類を優先試行（高精度）
         let openaiResult = null;
@@ -110,10 +279,8 @@ export default function ReceiptsPage() {
           );
           if (openaiResult && openaiResult.confidence > 0.8) {
             classificationResult = openaiResult;
-            console.log('🎆 OpenAI分類成功(高精度):', classificationResult);
           }
         } catch (error) {
-          console.log('⚠️ OpenAI分類スキップ:', error);
         }
         
         // 2. OpenAIが失敗/低精度ならHugging Faceを試行
@@ -127,7 +294,6 @@ export default function ReceiptsPage() {
           
           if (aiResult && aiResult.confidence > 0.6) {
             classificationResult = aiResult;
-            console.log('🤖 Hugging Face分類成功:', classificationResult);
           }
         }
         
@@ -146,11 +312,9 @@ export default function ReceiptsPage() {
             classificationResult = candidates.reduce((best, current) => 
               current.confidence > best.confidence ? current : best
             );
-            console.log('🔑 最高信頼度結果採用:', classificationResult);
           }
         }
         
-        console.log('🎯 最終分類結果:', classificationResult);
       }
 
       // レシートデータをDBに保存（分類結果も含める）
@@ -173,7 +337,10 @@ export default function ReceiptsPage() {
           filename: fileName,
           original_filename: fileName,
           ocr_text: ocrText,
-          extracted_data: receiptDataToSave,
+          extracted_data: {
+            ...receiptDataToSave,
+            image_url: imageUrl  // extracted_dataの中に画像URLを保存
+          },
           upload_date: new Date().toISOString()
         })
         .select()
@@ -181,7 +348,6 @@ export default function ReceiptsPage() {
 
       if (receiptError) throw receiptError;
       
-      console.log('Receipt saved to database:', receiptData);
       
       // 抽出されたデータがある場合、取引として保存（分類結果を活用）
       // 一時的に無効化してレシート保存のみテスト
@@ -192,8 +358,8 @@ export default function ReceiptsPage() {
           amount: extractedData.amount,
           description: extractedData.description || 'レシートからの取引',
           transaction_date: extractedData.date || new Date().toISOString().split('T')[0],
-          category: classificationResult ? classificationResult.categoryName : 'その他',
-          is_business: classificationResult ? classificationResult.isBusiness : true
+          is_business: classificationResult ? classificationResult.isBusiness : true,
+          transaction_type: 'expense'
         };
 
         const { error: transactionError } = await supabase
@@ -204,9 +370,8 @@ export default function ReceiptsPage() {
           console.error('Transaction save error:', transactionError);
           console.error('Transaction data that failed:', transactionData);
         } else {
-          console.log('Transaction created from receipt with classification:', {
             amount: extractedData.amount,
-            category: classificationResult?.categoryName,
+            categoryName: classificationResult?.categoryName,
             confidence: classificationResult?.confidence,
             isBusiness: classificationResult?.isBusiness
           });
@@ -228,16 +393,15 @@ export default function ReceiptsPage() {
 
     try {
       setProcessingUpload(true);
+      const uploadStartTime = new Date();
+      setLastUploadTime(uploadStartTime);
       
-      console.log(`Starting batch processing of ${files.length} receipts...`);
 
       // API設定
       const geminiApiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
       const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_VISION_API_KEY;
       const apiKey = geminiApiKey || googleApiKey;
       
-      console.log('Gemini API Key available:', !!geminiApiKey);
-      console.log('Google Vision API Key available:', !!googleApiKey);
       
       if (!apiKey) {
         console.error('No API key configured');
@@ -248,12 +412,32 @@ export default function ReceiptsPage() {
       const useGemini = !!geminiApiKey;
       const receiptOCR = new ReceiptOCR(apiKey, useGemini);
       
-      const results: Array<{file: File, success: boolean, data?: any, error?: string}> = [];
+      const results: Array<{file: File, success: boolean, data?: any, error?: string, isDuplicate?: boolean, duplicateReceipt?: Receipt}> = [];
+      let apiCallCount = 0;
+      const maxRetries = 3;
+      const retryDelay = 1000; // 1秒
+      
+      // 現在のレシート一覧を取得（重複チェック用）
+      const currentReceipts = await new Promise<Receipt[]>((resolve) => {
+        const fetchCurrentReceipts = async () => {
+          try {
+            const { data, error } = await supabase
+              .from('receipts')
+              .select('*')
+              .eq('user_id', user.id);
+            if (error) throw error;
+            resolve(data || []);
+          } catch (error) {
+            console.error('Error fetching current receipts for duplicate check:', error);
+            resolve([]);
+          }
+        };
+        fetchCurrentReceipts();
+      });
       
       // 各ファイルを順次処理
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        console.log(`Processing file ${i + 1}/${files.length}: ${file.name}`);
         
         try {
           // ファイル名生成
@@ -268,14 +452,52 @@ export default function ReceiptsPage() {
             reader.readAsDataURL(file);
           });
 
-          // OCR処理
-          console.log(`OCR processing file: ${file.name}`);
-          const result = await receiptOCR.processReceipt(imageBase64);
-          const { ocrText, extractedData } = result;
+          // OCR処理（リトライ機能付き）
+          let result;
+          let retryCount = 0;
           
-          // 複数レシートが検出された場合
-          if ((result as any).multipleReceipts && (result as any).multipleReceipts.length > 1) {
-            console.log(`📄 ${file.name}に${(result as any).totalCount}枚のレシートを検出`);
+          while (retryCount <= maxRetries) {
+            try {
+              apiCallCount++;
+              
+              // API制限チェック（軽量化）
+              if (apiCallCount > 10) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                apiCallCount = 0;
+              }
+              
+              result = await receiptOCR.processReceipt(imageBase64);
+              break; // 成功した場合はループを抜ける
+              
+            } catch (ocrError) {
+              retryCount++;
+              console.error(`OCR処理エラー (試行 ${retryCount}/${maxRetries + 1}):`, ocrError);
+              
+              if (retryCount <= maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, retryDelay * retryCount));
+              } else {
+                throw new Error(`OCR処理に${maxRetries + 1}回失敗しました: ${ocrError instanceof Error ? ocrError.message : 'Unknown error'}`);
+              }
+            }
+          }
+          
+          const { ocrText, extractedData } = result;
+
+          // 重複チェック
+          const duplicateReceipt = checkDuplicateReceipt(extractedData, currentReceipts);
+          if (duplicateReceipt) {
+            results.push({
+              file,
+              success: false,
+              isDuplicate: true,
+              duplicateReceipt,
+              error: `重複レシート: ${extractedData.merchantName} ¥${extractedData.amount} (${extractedData.date})`
+            });
+            continue; // 重複の場合はスキップ
+          }
+          
+          // 複数レシートが検出された場合（1枚以上）
+          if ((result as any).multipleReceipts && Array.isArray((result as any).multipleReceipts) && (result as any).multipleReceipts.length >= 1) {
             
             // 各レシートを個別に保存
             for (let j = 0; j < (result as any).multipleReceipts.length; j++) {
@@ -283,7 +505,6 @@ export default function ReceiptsPage() {
               const subFileName = `${user.id}/${Date.now()}_${i}_receipt_${j + 1}.${fileExt}`;
               
               await saveReceiptToDatabase(imageBase64, subFileName, ocrText, receiptData);
-              console.log(`  ✓ レシート${j + 1}: ${receiptData.merchantName || 'unknown'} - ¥${receiptData.amount}`);
             }
             
             results.push({
@@ -297,7 +518,6 @@ export default function ReceiptsPage() {
               }
             });
             
-            console.log(`✓ Successfully processed: ${file.name} - ${(result as any).totalCount}枚のレシート`);
           } else {
             // 単一レシートの場合
             await saveReceiptToDatabase(imageBase64, fileName, ocrText, extractedData);
@@ -308,15 +528,31 @@ export default function ReceiptsPage() {
               data: { ocrText, extractedData }
             });
             
-            console.log(`✓ Successfully processed: ${file.name} - ¥${extractedData.amount}`);
           }
           
         } catch (error) {
           console.error(`✗ Failed to process ${file.name}:`, error);
+          let errorMessage = 'Unknown error';
+          
+          if (error instanceof Error) {
+            errorMessage = error.message;
+            
+            // 特定のエラータイプに応じたメッセージ
+            if (error.message.includes('API')) {
+              errorMessage = 'APIエラー: サービスが一時的に利用できません';
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+              errorMessage = 'ネットワークエラー: インターネット接続を確認してください';
+            } else if (error.message.includes('timeout')) {
+              errorMessage = 'タイムアウトエラー: 処理に時間がかかりすぎました';
+            } else if (error.message.includes('quota') || error.message.includes('limit')) {
+              errorMessage = 'API使用制限に達しました。しばらくしてからお試しください';
+            }
+          }
+          
           results.push({
             file,
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
+            error: errorMessage
           });
         }
         
@@ -326,56 +562,84 @@ export default function ReceiptsPage() {
         }
       }
       
-      // 結果表示
-      const successCount = results.filter(r => r.success).length;
-      const failureCount = results.length - successCount;
-      
-      let message = `バッチ処理完了!\n成功: ${successCount}枚\n失敗: ${failureCount}枚\n\n`;
-      
-      // 成功した結果の詳細
+      // 結果をステートに保存
       const successResults = results.filter(r => r.success);
-      if (successResults.length > 0) {
-        message += '処理済みレシート:\n';
-        successResults.forEach((result, index) => {
-          if (result.data?.multipleCount && result.data?.receipts) {
-            // 複数レシートの場合
-            message += `${index + 1}. ${result.file.name} (${result.data.multipleCount}枚):\n`;
-            result.data.receipts.forEach((receipt: any, rIndex: number) => {
-              message += `  ${rIndex + 1}. ${receipt.merchantName || 'レシート'} - ¥${receipt.amount}\n`;
+      const failedFiles = results.filter(r => !r.success).map(r => ({
+        fileName: r.file.name,
+        error: r.error || 'Unknown error',
+        isDuplicate: r.isDuplicate
+      }));
+      
+      const processedReceipts: Array<{fileName: string, data: ExtractedData, receiptIndex?: number}> = [];
+      
+      successResults.forEach((r, index) => {
+          fileName: r.file.name,
+          hasMultipleReceipts: !!r.data?.multipleReceipts,
+          multipleCount: r.data?.multipleCount,
+          receiptsLength: r.data?.multipleReceipts?.length,
+          dataKeys: Object.keys(r.data || {})
+        });
+        if (r.data?.multipleReceipts && Array.isArray(r.data.multipleReceipts)) {
+          // 複数レシートの場合、全てを個別に追加
+          r.data.multipleReceipts.forEach((receipt: any, receiptIndex: number) => {
+            processedReceipts.push({
+              fileName: `${r.file.name} (レシート${receiptIndex + 1}/${r.data.multipleReceipts.length})`,
+              data: receipt,
+              receiptIndex: receiptIndex + 1
             });
-          } else {
-            // 単一レシートの場合
-            const amount = result.data?.extractedData?.amount;
-            const description = result.data?.extractedData?.description || result.file.name;
-            message += `${index + 1}. ${description} - ¥${amount}\n`;
-          }
-        });
-      }
+          });
+        } else {
+          // 単一レシートの場合
+          processedReceipts.push({
+            fileName: r.file.name,
+            data: r.data?.extractedData || {}
+          });
+        }
+      });
       
-      // 失敗した結果
-      const failureResults = results.filter(r => !r.success);
-      if (failureResults.length > 0) {
-        message += '\n失敗したファイル:\n';
-        failureResults.forEach((result, index) => {
-          message += `${index + 1}. ${result.file.name}: ${result.error}\n`;
-        });
-      }
       
-      alert(message);
+      // 処理結果表示は削除
+      // setProcessingResults({ 
+      //   successCount: processedReceipts.length, // 実際に処理されたレシート数
+      //   failedFiles, 
+      //   processedReceipts 
+      // });
       
       // レシート一覧を更新
       await fetchReceipts();
       
-      console.log(`Batch processing completed. Success: ${successCount}, Failed: ${failureCount}`);
+      // 新しいレシート判定用のタイムスタンプを更新（処理完了時点）
+      setLastUploadTime(new Date());
+      
       
     } catch (error) {
       console.error('Batch processing error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`バッチ処理でエラーが発生しました:\n${errorMessage}`);
-      throw error;
+      alert(`❌ 処理エラー: ${errorMessage}`);
     } finally {
       setProcessingUpload(false);
+      // setShowRealtimeProgress(false);
+      // setCurrentUploadFiles([]);
     }
+  };
+
+  // リアルタイムプログレスの完了処理
+  const handleProgressComplete = (results: any[]) => {
+    setShowRealtimeProgress(false);
+    setCurrentUploadFiles([]);
+    setProcessingUpload(false);
+    
+    // レシート一覧を再読み込み
+    fetchReceipts();
+    
+    // アラートは表示しない（リアルタイム表示で十分）
+  };
+
+  // リアルタイムプログレスのキャンセル処理
+  const handleProgressCancel = () => {
+    setShowRealtimeProgress(false);
+    setCurrentUploadFiles([]);
+    setProcessingUpload(false);
   };
 
   const formatDate = (dateString: string) => {
@@ -456,7 +720,6 @@ export default function ReceiptsPage() {
       ));
 
       cancelEditing();
-      console.log(`${field} updated for receipt ${receiptId}: ${processedValue}`);
     } catch (error) {
       console.error(`Error updating ${field}:`, error);
       alert(`${field === 'amount' ? '金額' : field === 'description' ? '説明' : field === 'merchantName' ? '店舗名' : field === 'date' ? '日付' : field}の更新に失敗しました`);
@@ -516,7 +779,6 @@ export default function ReceiptsPage() {
       // ローカル状態から削除
       setReceipts(prev => prev.filter(receipt => receipt.id !== receiptId));
       
-      console.log(`Receipt deleted: ${receiptId}`);
       alert('レシートを削除しました');
     } catch (error) {
       console.error('Error deleting receipt:', error);
@@ -559,19 +821,15 @@ export default function ReceiptsPage() {
         amount: receipt.extracted_data.amount,
         ocrText: receipt.ocr_text?.substring(0, 200)
       };
-      console.log('🔄 再分類実行:', debugInfo);
       
       // キーワード検索用テキストを表示
       const searchText = `${receipt.extracted_data.description || ''} ${receipt.extracted_data.merchantName || ''} ${receipt.ocr_text || ''}`.toLowerCase();
-      console.log('🔍 キーワード検索対象:', searchText.substring(0, 300));
       
       // エナジードリンクキーワードチェック
       const energyKeywords = ['エナジー', 'energy', 'レッドブル', 'redbull', 'モンスター', 'monster', 'リポビタン'];
       const foundEnergyKeywords = energyKeywords.filter(keyword => searchText.includes(keyword));
       if (foundEnergyKeywords.length > 0) {
-        console.log('⚡ エナジードリンクキーワード検出:', foundEnergyKeywords);
       } else {
-        console.log('⚠️ エナジードリンクキーワードが見つかりません');
       }
       
       // AI分類を優先して試行
@@ -621,7 +879,6 @@ export default function ReceiptsPage() {
           r.id === receiptId ? { ...r, extracted_data: updatedData } : r
         ));
 
-        console.log('Receipt reclassified:', classificationResult);
       }
     } catch (error) {
       console.error('Error reclassifying receipt:', error);
@@ -651,7 +908,6 @@ export default function ReceiptsPage() {
       // ローカル状態から削除
       setReceipts(prev => prev.filter(receipt => !selectedReceipts.has(receipt.id)));
       
-      console.log(`${count} receipts deleted:`, receiptIds);
       alert(`${count}件のレシートを削除しました`);
       
       // 選択状態をクリア
@@ -662,26 +918,91 @@ export default function ReceiptsPage() {
     }
   };
 
+  // CSVエクスポート機能
+  const exportToCSV = () => {
+    const headers = ['日付', '店舗名', '金額', '説明', 'カテゴリ', '事業用', '信頼度', 'ファイル名'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredAndSortedReceipts.map(receipt => [
+        receipt.extracted_data?.date || formatDate(receipt.upload_date),
+        `"${receipt.extracted_data?.merchantName || ''}"`,
+        receipt.extracted_data?.amount || 0,
+        `"${receipt.extracted_data?.description || ''}"`,
+        `"${receipt.extracted_data?.classification?.categoryName || ''}"`,
+        receipt.extracted_data?.classification?.isBusiness ? '事業用' : '個人用',
+        receipt.extracted_data?.classification?.confidence ? `${Math.round(receipt.extracted_data.classification.confidence * 100)}%` : '',
+        `"${receipt.original_filename || receipt.filename}"`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `receipts_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // JSONエクスポート機能
+  const exportToJSON = () => {
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      totalReceipts: filteredAndSortedReceipts.length,
+      receipts: filteredAndSortedReceipts.map(receipt => ({
+        id: receipt.id,
+        filename: receipt.original_filename || receipt.filename,
+        uploadDate: receipt.upload_date,
+        extractedData: receipt.extracted_data,
+        classification: receipt.extracted_data?.classification,
+        imageUrl: receipt.image_url
+      }))
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `receipts_${new Date().toISOString().split('T')[0]}.json`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Calculator className="h-12 w-12 text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">読み込み中...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/30">
+        <div className="text-center animate-fade-in">
+          <div className="relative mb-8">
+            <Calculator className="h-16 w-16 text-primary mx-auto animate-spin" />
+            <div className="absolute inset-0 h-16 w-16 mx-auto animate-ping bg-primary/20 rounded-full"></div>
+            <div className="absolute inset-2 h-12 w-12 mx-auto animate-pulse bg-primary/10 rounded-full"></div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-lg font-medium text-foreground animate-pulse">Keiri App</p>
+            <p className="text-muted-foreground animate-pulse">読み込み中...</p>
+          </div>
+          <div className="flex justify-center mt-6 space-x-2">
+            <div className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+            <div className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '200ms'}}></div>
+            <div className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '400ms'}}></div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // 一時的に認証チェックを無効化（テスト用）
-  // if (!user) return null;
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background animate-fade-in">
       {/* デスクトップレイアウト */}
       <div className="hidden md:flex">
         <Sidebar />
-        <div className="flex-1 md:ml-64">
+        <div className="flex-1 md:ml-64 animate-fade-in">
           <main className="p-8">
             <div className="max-w-7xl mx-auto">
               <div className="mb-8">
@@ -691,19 +1012,22 @@ export default function ReceiptsPage() {
 
               <div className="grid gap-8 lg:grid-cols-2">
                 {/* アップロードエリア */}
-                <div>
+                <div className="space-y-6">
                   <ReceiptUpload 
                     onUpload={handleReceiptUpload} 
                     isProcessing={processingUpload}
                   />
+                  <PhotographyHelp />
                 </div>
+
+{/* 処理結果表示は色分けで判断するため削除 */}
 
                 {/* レシート一覧 */}
                 <div>
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle>最近のレシート</CardTitle>
+                      <div className="flex items-center justify-between mb-4">
+                        <CardTitle>レシート一覧</CardTitle>
                         <div className="flex items-center gap-2">
                           {!isSelectionMode ? (
                             <>
@@ -774,14 +1098,130 @@ export default function ReceiptsPage() {
                           )}
                         </div>
                       </div>
+                      
+                      {/* 検索・フィルタUI */}
+                      <div className="space-y-4">
+                        <div className="flex flex-col md:flex-row gap-4">
+                          {/* 検索 */}
+                          <div className="flex-1">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                              <Input
+                                placeholder="レシートを検索（店舗名、説明、ファイル名）"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-10"
+                              />
+                            </div>
+                          </div>
+                          
+                          {/* カテゴリフィルタ */}
+                          <select
+                            value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}
+                            className="px-3 py-2 border border-input bg-background rounded-md text-sm"
+                          >
+                            <option value="all">全カテゴリ</option>
+                            {availableCategories.map(category => (
+                              <option key={category} value={category}>{category}</option>
+                            ))}
+                          </select>
+                          
+                          {/* ソート */}
+                          <div className="flex gap-2">
+                            <select
+                              value={sortBy}
+                              onChange={(e) => setSortBy(e.target.value as 'date' | 'amount' | 'merchant' | 'upload')}
+                              className="px-3 py-2 border border-input bg-background rounded-md text-sm"
+                            >
+                              <option value="date">日付順</option>
+                              <option value="upload">アップロード順</option>
+                              <option value="amount">金額順</option>
+                              <option value="merchant">店舗名順</option>
+                            </select>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                            >
+                              {sortOrder === 'asc' ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {/* 日付範囲フィルタ */}
+                        <div className="flex gap-4 items-center">
+                          <span className="text-sm text-muted-foreground">日付範囲:</span>
+                          <Input
+                            type="date"
+                            value={filterDateRange.start}
+                            onChange={(e) => setFilterDateRange(prev => ({...prev, start: e.target.value}))}
+                            className="w-40"
+                          />
+                          <span className="text-muted-foreground">〜</span>
+                          <Input
+                            type="date"
+                            value={filterDateRange.end}
+                            onChange={(e) => setFilterDateRange(prev => ({...prev, end: e.target.value}))}
+                            className="w-40"
+                          />
+                          {(filterDateRange.start || filterDateRange.end) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setFilterDateRange({start: '', end: ''})}
+                            >
+                              クリア
+                            </Button>
+                          )}
+                        </div>
+                        
+                        {/* 検索結果件数とエクスポート */}
+                        <div className="flex justify-between items-center">
+                          <div className="text-sm text-muted-foreground">
+                            {filteredAndSortedReceipts.length}件のレシート{searchQuery.trim() || filterCategory !== 'all' || filterDateRange.start || filterDateRange.end ? ' (フィルタ済み)' : ''}
+                          </div>
+                          
+                          {filteredAndSortedReceipts.length > 0 && (
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={exportToCSV}
+                                className="transition-all duration-200 hover:scale-105 hover:shadow-md"
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                CSV
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={exportToJSON}
+                                className="transition-all duration-200 hover:scale-105 hover:shadow-md"
+                              >
+                                <FileDown className="h-4 w-4 mr-2" />
+                                JSON
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       {loadingReceipts ? (
-                        <div className="text-center py-8">
-                          <Calculator className="h-8 w-8 mx-auto mb-4 animate-spin" />
-                          <p className="text-muted-foreground">読み込み中...</p>
+                        <div className="text-center py-8 animate-fade-in">
+                          <div className="relative">
+                            <Calculator className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
+                            <div className="absolute inset-0 h-8 w-8 mx-auto animate-pulse bg-primary/20 rounded-full"></div>
+                          </div>
+                          <p className="text-muted-foreground animate-pulse">読み込み中...</p>
+                          <div className="flex justify-center mt-4 space-x-1">
+                            <div className="h-1 w-1 bg-primary rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                            <div className="h-1 w-1 bg-primary rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                            <div className="h-1 w-1 bg-primary rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                          </div>
                         </div>
-                      ) : receipts.length === 0 ? (
+                      ) : filteredAndSortedReceipts.length === 0 ? (
                         <div className="text-center py-12 text-muted-foreground">
                           <Camera className="h-16 w-16 mx-auto mb-4 opacity-50" />
                           <p className="text-lg mb-2">レシートがありません</p>
@@ -789,28 +1229,43 @@ export default function ReceiptsPage() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          {receipts.map((receipt) => (
+                          {filteredAndSortedReceipts.map((receipt, index) => (
                             <div
                               key={receipt.id}
-                              className={`p-4 border rounded-lg hover:bg-muted/50 transition-colors ${
-                                selectedReceipts.has(receipt.id) ? 'bg-blue-50 border-blue-300' : ''
+                              className={`p-4 border rounded-lg hover:bg-muted/50 transition-all duration-300 ease-in-out transform hover:scale-[1.02] hover:shadow-lg animate-fade-in ${
+                                selectedReceipts.has(receipt.id) 
+                                  ? selectedReceiptStyles
+                                  : isNewReceipt(receipt.upload_date)
+                                    ? newReceiptStyles
+                                    : existingReceiptStyles
                               }`}
+                              style={{
+                                animationDelay: `${index * 50}ms`,
+                                animationFillMode: 'both'
+                              }}
                             >
                               <div className="flex items-start justify-between mb-2">
-                                {isSelectionMode && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => toggleReceiptSelection(receipt.id)}
-                                    className="h-6 w-6 p-0 mr-2 flex-shrink-0"
-                                  >
-                                    {selectedReceipts.has(receipt.id) ? (
-                                      <CheckSquare className="h-4 w-4 text-blue-600" />
-                                    ) : (
-                                      <Square className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {isSelectionMode && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => toggleReceiptSelection(receipt.id)}
+                                      className="h-6 w-6 p-0 mr-2 flex-shrink-0"
+                                    >
+                                      {selectedReceipts.has(receipt.id) ? (
+                                        <CheckSquare className="h-4 w-4 text-blue-600" />
+                                      ) : (
+                                        <Square className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  )}
+                                  {isNewReceipt(receipt.upload_date) && (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-white text-emerald-600 shadow-sm">
+                                      ✨ NEW
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-2 flex-1 min-w-0 pr-3">
                                   <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
                                   <span className="font-medium text-sm break-words leading-tight">
@@ -842,15 +1297,15 @@ export default function ReceiptsPage() {
                                   {receipt.extracted_data.classification && (
                                     <div className="flex items-center justify-between text-sm p-2 bg-blue-50 rounded">
                                       <div className="flex items-center gap-2">
-                                        <Tag className="h-3 w-3 text-blue-600" />
-                                        <span className="text-blue-800 font-medium">
+                                        <Tag className="h-3 w-3 !text-blue-600" />
+                                        <span className="!text-blue-800 font-medium">
                                           {receipt.extracted_data.classification.categoryName}
                                         </span>
                                         {receipt.extracted_data.classification.isBusiness && (
-                                          <span className="text-xs bg-green-100 text-green-700 px-1 rounded">事業用</span>
+                                          <span className="text-xs bg-green-100 !text-green-700 px-1 rounded">事業用</span>
                                         )}
                                       </div>
-                                      <span className="text-xs text-blue-600">
+                                      <span className="text-xs !text-blue-600">
                                         信頼度: {Math.round(receipt.extracted_data.classification.confidence * 100)}%
                                       </span>
                                     </div>
@@ -1087,12 +1542,15 @@ export default function ReceiptsPage() {
             </div>
           </main>
         </div>
+        
+        {/* サイドバーガイド */}
+        <SidebarGuide />
       </div>
 
       {/* モバイルレイアウト */}
       <div className="md:hidden">
         <Header />
-        <main className="p-4 pb-20">
+        <main className="p-4 pb-20 animate-fade-in">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-foreground mb-2">レシート管理</h1>
             <p className="text-sm text-muted-foreground">OCRで自動取引作成</p>
@@ -1103,11 +1561,13 @@ export default function ReceiptsPage() {
               onUpload={handleReceiptUpload} 
               isProcessing={processingUpload}
             />
+            
+            <PhotographyHelp />
 
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">最近のレシート</CardTitle>
+                <div className="flex items-center justify-between mb-4">
+                  <CardTitle className="text-lg">レシート一覧</CardTitle>
                   <div className="flex items-center gap-1">
                     {!isSelectionMode ? (
                       <Button
@@ -1150,9 +1610,59 @@ export default function ReceiptsPage() {
                     )}
                   </div>
                 </div>
+                
+                {/* モバイル版検索 */}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="レシートを検索"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10 text-sm"
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <select
+                      value={filterCategory}
+                      onChange={(e) => setFilterCategory(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-input bg-background rounded-md text-xs"
+                    >
+                      <option value="all">全カテゴリ</option>
+                      {availableCategories.map(category => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </select>
+                    
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as 'date' | 'amount' | 'merchant' | 'upload')}
+                      className="flex-1 px-3 py-2 border border-input bg-background rounded-md text-xs"
+                    >
+                      <option value="date">日付順</option>
+                      <option value="upload">アップロード順</option>
+                      <option value="amount">金額順</option>
+                      <option value="merchant">店舗順</option>
+                    </select>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                      className="px-2"
+                    >
+                      {sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />}
+                    </Button>
+                  </div>
+                  
+                  <div className="text-xs text-muted-foreground">
+                    {filteredAndSortedReceipts.length}件{searchQuery.trim() || filterCategory !== 'all' ? ' (フィルタ済み)' : ''}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                {receipts.length === 0 ? (
+                {filteredAndSortedReceipts.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Camera className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p className="mb-2">レシートがありません</p>
@@ -1160,10 +1670,21 @@ export default function ReceiptsPage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {receipts.slice(0, 5).map((receipt) => (
-                      <div key={receipt.id} className={`p-3 border rounded-lg ${
-                        selectedReceipts.has(receipt.id) ? 'bg-blue-50 border-blue-300' : ''
-                      }`}>
+                    {filteredAndSortedReceipts.slice(0, 10).map((receipt, index) => (
+                      <div 
+                        key={receipt.id} 
+                        className={`p-3 border rounded-lg transition-all duration-300 ease-in-out transform hover:scale-[1.01] animate-fade-in ${
+                          selectedReceipts.has(receipt.id) 
+                            ? selectedReceiptStyles
+                            : isNewReceipt(receipt.upload_date)
+                              ? newReceiptStyles
+                              : existingReceiptStyles
+                        }`}
+                        style={{
+                          animationDelay: `${index * 40}ms`,
+                          animationFillMode: 'both'
+                        }}
+                      >
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex items-center gap-2 flex-1 min-w-0 pr-3">
                             {isSelectionMode && (
@@ -1250,15 +1771,15 @@ export default function ReceiptsPage() {
                             {receipt.extracted_data.classification && (
                               <div className="flex items-center justify-between p-2 bg-blue-50 rounded mb-2">
                                 <div className="flex items-center gap-1">
-                                  <Tag className="h-3 w-3 text-blue-600" />
-                                  <span className="text-blue-800 font-medium text-xs">
+                                  <Tag className="h-3 w-3 !text-blue-600" />
+                                  <span className="!text-blue-800 font-medium text-xs">
                                     {receipt.extracted_data.classification.categoryName}
                                   </span>
                                   {receipt.extracted_data.classification.isBusiness && (
-                                    <span className="text-xs bg-green-100 text-green-700 px-1 rounded">事業</span>
+                                    <span className="text-xs bg-green-100 !text-green-700 px-1 rounded">事業</span>
                                   )}
                                 </div>
-                                <span className="text-xs text-blue-600">
+                                <span className="text-xs !text-blue-600">
                                   {Math.round(receipt.extracted_data.classification.confidence * 100)}%
                                 </span>
                               </div>
@@ -1401,6 +1922,8 @@ export default function ReceiptsPage() {
         </main>
         <BottomNav />
       </div>
+
+{/* リアルタイムプログレス表示を削除 */}
     </div>
   );
 }

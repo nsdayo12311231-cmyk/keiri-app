@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Calculator, 
   FileText, 
@@ -21,7 +23,9 @@ import {
   Building2,
   User,
   Filter,
-  Download
+  Download,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 
 interface JournalEntry {
@@ -43,7 +47,6 @@ interface Transaction {
   amount: number;
   description: string;
   transaction_date: string;
-  transaction_type: 'expense' | 'revenue';
   is_business: boolean;
   is_confirmed: boolean;
   category_id?: string;
@@ -52,6 +55,12 @@ interface Transaction {
     code: string;
     category_type: string;
   };
+}
+
+interface AccountCategory {
+  id: string;
+  name: string;
+  category_type: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 }
 
 const ACCOUNT_MAPPING = {
@@ -75,6 +84,14 @@ export default function JournalPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [accountCategories, setAccountCategories] = useState<AccountCategory[]>([]);
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [updatingCategory, setUpdatingCategory] = useState(false);
+  const [currentTransaction, setCurrentTransaction] = useState<Transaction | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  const [processingDelete, setProcessingDelete] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -85,11 +102,28 @@ export default function JournalPage() {
   useEffect(() => {
     if (user) {
       fetchJournalEntries();
+      fetchAccountCategories();
     }
   }, [user, selectedYear, selectedMonth, filterType]);
 
+  const fetchAccountCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('account_categories')
+        .select('id, name, category_type')
+        .order('category_type')
+        .order('name');
+
+      if (error) throw error;
+      setAccountCategories(data || []);
+    } catch (error) {
+      console.error('勘定科目取得エラー:', error);
+    }
+  };
+
   const generateJournalEntry = (transaction: Transaction): JournalEntry => {
-    const accountInfo = ACCOUNT_MAPPING[transaction.transaction_type][transaction.is_business ? 'business' : 'personal'];
+    const transactionType = Number(transaction.amount) < 0 ? 'expense' : 'revenue';
+    const accountInfo = ACCOUNT_MAPPING[transactionType][transaction.is_business ? 'business' : 'personal'];
     
     return {
       id: `journal_${transaction.id}`,
@@ -119,7 +153,6 @@ export default function JournalPage() {
           amount,
           description,
           transaction_date,
-          transaction_type,
           is_business,
           is_confirmed,
           category_id,
@@ -162,6 +195,12 @@ export default function JournalPage() {
 
       if (error) throw error;
 
+      console.log('仕訳帳データ取得結果:', {
+        total: data?.length || 0,
+        data: data?.slice(0, 3), // 最初の3件をログ出力
+        filters: { selectedYear, selectedMonth, filterType }
+      });
+
       const entries = (data || []).map(generateJournalEntry);
       setJournalEntries(entries);
       
@@ -169,6 +208,138 @@ export default function JournalPage() {
       console.error('Error fetching journal entries:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const updateTransactionCategory = async (transactionId: string, categoryId: string) => {
+    try {
+      setUpdatingCategory(true);
+      
+      const { error } = await supabase
+        .from('transactions')
+        .update({ category_id: categoryId })
+        .eq('id', transactionId);
+
+      if (error) throw error;
+
+      // 仕訳帳データを再取得
+      await fetchJournalEntries();
+      setEditModalOpen(false);
+      setEditingEntry(null);
+      
+    } catch (error) {
+      console.error('勘定科目更新エラー:', error);
+      alert('勘定科目の更新に失敗しました');
+    } finally {
+      setUpdatingCategory(false);
+    }
+  };
+
+  const handleEditEntry = async (entry: JournalEntry) => {
+    // 取引詳細を取得
+    try {
+      const { data: transaction, error } = await supabase
+        .from('transactions')
+        .select(`
+          id,
+          amount,
+          description,
+          transaction_date,
+          is_business,
+          category_id,
+          account_categories (
+            name,
+            category_type
+          )
+        `)
+        .eq('id', entry.transaction_id)
+        .single();
+      
+      if (error) throw error;
+      
+      setCurrentTransaction(transaction);
+      setEditingEntry(entry);
+      setEditModalOpen(true);
+    } catch (error) {
+      console.error('取引詳細取得エラー:', error);
+      alert('取引詳細の取得に失敗しました');
+    }
+  };
+
+  const getRelevantCategories = () => {
+    if (!currentTransaction) return [];
+    
+    // 取引タイプに応じて適切な勘定科目をフィルタリング
+    const currentTransactionType = Number(currentTransaction.amount) < 0 ? 'expense' : 'revenue';
+    if (currentTransactionType === 'expense') {
+      // 支出の場合: expense（費用）カテゴリのみ
+      return accountCategories.filter(cat => cat.category_type === 'expense');
+    } else if (currentTransactionType === 'revenue') {
+      // 収入の場合: revenue（収益）カテゴリのみ
+      return accountCategories.filter(cat => cat.category_type === 'revenue');
+    }
+    
+    return accountCategories;
+  };
+
+  const getCategoryTypeLabel = (type: string) => {
+    const labels = {
+      asset: '資産',
+      liability: '負債',
+      equity: '純資産',
+      revenue: '収益',
+      expense: '費用'
+    };
+    return labels[type as keyof typeof labels] || type;
+  };
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedIds(new Set());
+    } else {
+      const allIds = new Set(journalEntries.map(entry => entry.transaction_id));
+      setSelectedIds(allIds);
+    }
+    setSelectAll(!selectAll);
+  };
+
+  const handleSelectEntry = (transactionId: string) => {
+    const newSelectedIds = new Set(selectedIds);
+    if (newSelectedIds.has(transactionId)) {
+      newSelectedIds.delete(transactionId);
+    } else {
+      newSelectedIds.add(transactionId);
+    }
+    setSelectedIds(newSelectedIds);
+    setSelectAll(newSelectedIds.size === journalEntries.length);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    
+    const confirmed = confirm(`選択した${selectedIds.size}件の取引を削除しますか？この操作は取り消せません。`);
+    if (!confirmed) return;
+    
+    try {
+      setProcessingDelete(true);
+      
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .in('id', Array.from(selectedIds));
+      
+      if (error) throw error;
+      
+      // 仕訳帳データを再取得
+      await fetchJournalEntries();
+      setSelectedIds(new Set());
+      setSelectAll(false);
+      
+    } catch (error) {
+      console.error('削除エラー:', error);
+      alert('取引の削除に失敗しました');
+    } finally {
+      setProcessingDelete(false);
     }
   };
 
@@ -288,11 +459,11 @@ export default function JournalPage() {
                       </Select>
                     </div>
 
-                    <div className="flex items-end">
+                    <div className="flex items-end space-x-2">
                       <Button
                         onClick={exportJournal}
                         disabled={journalEntries.length === 0}
-                        className="w-full"
+                        className="flex-1"
                         variant="outline"
                       >
                         <Download className="mr-2 h-4 w-4" />
@@ -355,59 +526,237 @@ export default function JournalPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {/* テーブルヘッダー */}
-                      <div className="grid grid-cols-8 gap-4 p-3 bg-muted/30 rounded-lg font-medium text-sm">
-                        <div>日付</div>
-                        <div>摘要</div>
-                        <div>借方勘定</div>
-                        <div>貸方勘定</div>
-                        <div className="text-right">金額</div>
-                        <div>区分</div>
-                        <div>参照番号</div>
-                        <div></div>
+                      {/* 選択コントロール */}
+                      <div className="flex justify-between items-center p-3 bg-muted/20 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="selectAll"
+                            checked={selectAll}
+                            onCheckedChange={handleSelectAll}
+                          />
+                          <Label htmlFor="selectAll" className="text-sm font-medium">
+                            すべて選択
+                          </Label>
+                          {selectedIds.size > 0 && (
+                            <span className="text-sm text-muted-foreground">
+                              {selectedIds.size}件選択中
+                            </span>
+                          )}
+                        </div>
+                        
+                        {selectedIds.size > 0 && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteSelected}
+                            disabled={processingDelete}
+                          >
+                            <Trash2 className="mr-1 h-3 w-3" />
+                            {processingDelete ? '削除中...' : '選択項目を削除'}
+                          </Button>
+                        )}
                       </div>
                       
-                      {/* 仕訳エントリ */}
-                      {journalEntries.map((entry) => (
-                        <div key={entry.id} className="grid grid-cols-8 gap-4 p-3 border rounded-lg hover:bg-muted/20">
-                          <div className="text-sm">
-                            {formatDate(entry.transaction_date)}
+                      {/* テーブルヘッダー - レスポンシブ対応 */}
+                      <div className="hidden xl:grid xl:grid-cols-9 gap-4 p-3 bg-muted/30 rounded-lg font-medium text-sm">
+                        <div className="w-8"></div>
+                        <div className="min-w-[80px]">日付</div>
+                        <div className="min-w-[120px]">摘要</div>
+                        <div className="min-w-[100px]">借方勘定</div>
+                        <div className="min-w-[100px]">貸方勘定</div>
+                        <div className="text-right min-w-[80px]">金額</div>
+                        <div className="min-w-[60px]">区分</div>
+                        <div className="min-w-[80px]">参照番号</div>
+                        <div className="min-w-[60px]">操作</div>
+                      </div>
+                      
+                      {/* モバイル・タブレット用ヘッダー */}
+                      <div className="xl:hidden p-2 bg-muted/30 rounded-lg font-medium text-sm text-center">
+                        仕訳エントリ一覧
+                      </div>
+                      
+                      {/* 仕訳エントリ - デスクトップ用 */}
+                      <div className="hidden xl:block">
+                        {journalEntries.map((entry) => (
+                          <div key={entry.id} className={`grid grid-cols-9 gap-4 p-3 border rounded-lg hover:bg-muted/20 ${
+                            selectedIds.has(entry.transaction_id) ? 'bg-blue-50 border-blue-200' : ''
+                          }`}>
+                            <div className="flex items-center w-8">
+                              <Checkbox
+                                checked={selectedIds.has(entry.transaction_id)}
+                                onCheckedChange={() => handleSelectEntry(entry.transaction_id)}
+                              />
+                            </div>
+                            <div className="text-sm min-w-[80px] truncate">
+                              {formatDate(entry.transaction_date)}
+                            </div>
+                            <div className="text-sm font-medium min-w-[120px] truncate" title={entry.description}>
+                              {entry.description}
+                            </div>
+                            <div className="text-sm min-w-[100px]">
+                              <div className="font-medium truncate" title={entry.debit_account_name}>{entry.debit_account_name}</div>
+                              <div className="text-xs text-muted-foreground truncate">{entry.debit_account}</div>
+                            </div>
+                            <div className="text-sm min-w-[100px]">
+                              <div className="font-medium truncate" title={entry.credit_account_name}>{entry.credit_account_name}</div>
+                              <div className="text-xs text-muted-foreground truncate">{entry.credit_account}</div>
+                            </div>
+                            <div className="text-sm font-semibold text-right min-w-[80px]">
+                              {formatCurrency(entry.amount)}
+                            </div>
+                            <div className="min-w-[60px]">
+                              <Badge variant={entry.is_business ? 'default' : 'secondary'} className="text-xs">
+                                {entry.is_business ? '事業' : '個人'}
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground min-w-[80px] truncate">
+                              {entry.reference_number}
+                            </div>
+                            <div className="flex items-center justify-center w-[60px]">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditEntry(entry)}
+                                className="h-8 w-8 p-0"
+                              >
+                                <Edit3 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="text-sm font-medium">
-                            {entry.description}
-                          </div>
-                          <div className="text-sm">
-                            <div className="font-medium">{entry.debit_account_name}</div>
-                            <div className="text-xs text-muted-foreground">{entry.debit_account}</div>
-                          </div>
-                          <div className="text-sm">
-                            <div className="font-medium">{entry.credit_account_name}</div>
-                            <div className="text-xs text-muted-foreground">{entry.credit_account}</div>
-                          </div>
-                          <div className="text-sm font-semibold text-right">
-                            {formatCurrency(entry.amount)}
-                          </div>
-                          <div>
-                            <Badge variant={entry.is_business ? 'default' : 'secondary'}>
-                              {entry.is_business ? '事業' : '個人'}
-                            </Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {entry.reference_number}
-                          </div>
-                          <div className="flex items-center">
-                            {entry.is_business ? (
-                              <Building2 className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <User className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                      
+                      {/* 仕訳エントリ - モバイル/タブレット用 */}
+                      <div className="xl:hidden space-y-3">
+                        {journalEntries.map((entry) => (
+                          <Card key={entry.id} className={`${
+                            selectedIds.has(entry.transaction_id) ? 'bg-blue-50 border-blue-200' : ''
+                          }`}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-start space-x-3 flex-1">
+                                  <Checkbox
+                                    checked={selectedIds.has(entry.transaction_id)}
+                                    onCheckedChange={() => handleSelectEntry(entry.transaction_id)}
+                                    className="mt-1"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-sm break-words">{entry.description}</div>
+                                    <div className="text-xs text-muted-foreground mt-1">{formatDate(entry.transaction_date)}</div>
+                                  </div>
+                                </div>
+                                <div className="text-right ml-3 flex-shrink-0">
+                                  <div className="font-semibold text-sm">{formatCurrency(entry.amount)}</div>
+                                  <Badge variant={entry.is_business ? 'default' : 'secondary'} className="text-xs mt-1">
+                                    {entry.is_business ? '事業' : '個人'}
+                                  </Badge>
+                                </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+                                <div className="bg-green-50 p-3 rounded border">
+                                  <div className="text-green-800 font-medium mb-1">借方</div>
+                                  <div className="text-green-700 font-medium break-words">{entry.debit_account_name}</div>
+                                  <div className="text-green-600 text-xs mt-1">{entry.debit_account}</div>
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded border">
+                                  <div className="text-blue-800 font-medium mb-1">貸方</div>
+                                  <div className="text-blue-700 font-medium break-words">{entry.credit_account_name}</div>
+                                  <div className="text-blue-600 text-xs mt-1">{entry.credit_account}</div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-xs">
+                                <div className="text-muted-foreground">
+                                  {entry.reference_number}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditEntry(entry)}
+                                  className="h-8 w-8 p-0 flex-shrink-0"
+                                >
+                                  <Edit3 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
+              
+              {/* 勘定科目編集モーダル */}
+              <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>勘定科目の変更</DialogTitle>
+                  </DialogHeader>
+                  
+                  {editingEntry && (
+                    <div className="space-y-4">
+                      <div className="p-3 bg-muted rounded-lg">
+                        <div className="font-medium">{editingEntry.description}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {formatDate(editingEntry.transaction_date)} • {formatCurrency(editingEntry.amount)}
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm font-medium">現在の勘定科目</Label>
+                          <div className="p-2 bg-muted/50 rounded border text-sm mt-1">
+                            {currentTransaction?.account_categories?.name || '未設定'}
+                            <span className="text-xs text-muted-foreground ml-2">
+                              ({getCategoryTypeLabel(currentTransaction?.account_categories?.category_type || '')})
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <Label className="text-sm font-medium">新しい勘定科目を選択</Label>
+                          <Select 
+                            onValueChange={(value) => updateTransactionCategory(editingEntry.transaction_id, value)}
+                            disabled={updatingCategory}
+                          >
+                            <SelectTrigger className="mt-1">
+                              <SelectValue placeholder="勘定科目を選択してください" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {getRelevantCategories().map((category) => (
+                                <SelectItem 
+                                  key={category.id} 
+                                  value={category.id}
+                                  className="py-2 px-3"
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{category.name}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {getCategoryTypeLabel(category.category_type)}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        <div className="text-xs text-muted-foreground p-2 bg-blue-50 rounded">
+                          💡 {(currentTransaction && Number(currentTransaction.amount) < 0) ? '支出取引のため費用科目のみ表示' : '収入取引のため収益科目のみ表示'}
+                        </div>
+                      </div>
+                      
+                      {updatingCategory && (
+                        <div className="text-center text-sm text-muted-foreground">
+                          更新中...
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
             </div>
           </main>
         </div>
@@ -477,6 +826,40 @@ export default function JournalPage() {
                   <Download className="h-3 w-3" />
                 </Button>
               </div>
+              
+              {/* モバイル用選択コントロール */}
+              {journalEntries.length > 0 && (
+                <div className="flex justify-between items-center p-2 bg-muted/20 rounded mt-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="selectAllMobile"
+                      checked={selectAll}
+                      onCheckedChange={handleSelectAll}
+                    />
+                    <Label htmlFor="selectAllMobile" className="text-xs">
+                      すべて選択
+                    </Label>
+                    {selectedIds.size > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {selectedIds.size}件
+                      </span>
+                    )}
+                  </div>
+                  
+                  {selectedIds.size > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteSelected}
+                      disabled={processingDelete}
+                      className="h-6 px-2 text-xs"
+                    >
+                      <Trash2 className="mr-1 h-2 w-2" />
+                      {processingDelete ? '削除中...' : '削除'}
+                    </Button>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -530,12 +913,21 @@ export default function JournalPage() {
           ) : (
             <div className="space-y-3">
               {journalEntries.map((entry) => (
-                <Card key={entry.id}>
+                <Card key={entry.id} className={`${
+                  selectedIds.has(entry.transaction_id) ? 'bg-blue-50 border-blue-200' : ''
+                }`}>
                   <CardContent className="p-3">
                     <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="font-medium text-sm">{entry.description}</div>
-                        <div className="text-xs text-muted-foreground">{formatDate(entry.transaction_date)}</div>
+                      <div className="flex items-start space-x-2 flex-1">
+                        <Checkbox
+                          checked={selectedIds.has(entry.transaction_id)}
+                          onCheckedChange={() => handleSelectEntry(entry.transaction_id)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{entry.description}</div>
+                          <div className="text-xs text-muted-foreground">{formatDate(entry.transaction_date)}</div>
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="font-semibold">{formatCurrency(entry.amount)}</div>
@@ -558,8 +950,18 @@ export default function JournalPage() {
                       </div>
                     </div>
                     
-                    <div className="mt-2 text-xs text-muted-foreground text-center">
-                      {entry.reference_number}
+                    <div className="mt-2 flex justify-between items-center">
+                      <div className="text-xs text-muted-foreground">
+                        {entry.reference_number}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEditEntry(entry)}
+                        className="h-6 w-6 p-0"
+                      >
+                        <Edit3 className="h-3 w-3" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

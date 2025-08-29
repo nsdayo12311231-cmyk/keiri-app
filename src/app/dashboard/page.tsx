@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +11,8 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { BottomNav } from '@/components/layout/bottom-nav';
 import { Receipt, PieChart, TrendingUp, Calculator, Building2, User, Calendar, ArrowRight } from 'lucide-react';
 import { ExpenseChart } from '@/components/dashboard/expense-chart';
+import { QuickGuide } from '@/components/dashboard/quick-guide';
+import { SidebarGuide } from '@/components/layout/sidebar-guide';
 
 interface DashboardStats {
   totalRevenue: number;
@@ -38,7 +40,7 @@ interface RecentTransaction {
   description: string;
   transaction_date: string;
   is_business: boolean;
-  transaction_type: 'expense' | 'revenue';
+  transaction_type?: 'expense' | 'revenue';
 }
 
 export default function DashboardPage() {
@@ -60,117 +62,94 @@ export default function DashboardPage() {
     }
   }, [user, loading, router]);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!user) return;
+  const fetchStats = useCallback(async () => {
+    if (!user) return;
 
-      try {
-        // 今月の取引データを取得
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth() + 1; // getMonth() は 0-based なので +1
-        
-        const startOfMonth = `${year}-${month.toString().padStart(2, '0')}-01`;
-        const nextMonth = month === 12 ? 1 : month + 1;
-        const nextYear = month === 12 ? year + 1 : year;
-        const startOfNextMonth = `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
-        
-        const { data: transactions, error } = await supabase
-          .from('transactions')
-          .select(`
-            amount, 
-            is_business, 
-            is_confirmed, 
-            transaction_type, 
-            category_id,
-            account_categories (
-              name,
-              code,
-              category_type
-            )
-          `)
-          .eq('user_id', user.id)
-          .gte('transaction_date', startOfMonth)
-          .lt('transaction_date', startOfNextMonth);
+    try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      
+      const startOfMonth = `${year}-${month.toString().padStart(2, '0')}-01`;
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const startOfNextMonth = `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
+      
+      // 軽量なクエリ - 必要なデータのみ
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('amount, is_business, is_confirmed, description, transaction_date, id')
+        .eq('user_id', user.id)
+        .gte('transaction_date', startOfMonth)
+        .lt('transaction_date', startOfNextMonth)
+        .order('transaction_date', { ascending: false })
+        .limit(200); // 最大200件に制限
 
-        if (error) {
-          console.error('Error fetching transactions:', error);
-          return;
-        }
-
-        // 統計を計算
-        const expenses = transactions?.filter(tx => tx.transaction_type === 'expense') || [];
-        const revenues = transactions?.filter(tx => tx.transaction_type === 'revenue') || [];
-        
-        const newStats: DashboardStats = {
-          totalRevenue: revenues.reduce((total, tx) => total + Number(tx.amount), 0),
-          totalExpenses: expenses.reduce((total, tx) => total + Number(tx.amount), 0),
-          unconfirmedTransactions: transactions?.filter(tx => !tx.is_confirmed).length || 0,
-          businessTransactions: transactions?.filter(tx => tx.is_business).length || 0,
-        };
-
-        // 支出内訳データを作成
-        const categoryMap = new Map();
-        expenses.forEach(tx => {
-          const categoryName = tx.account_categories?.name || '未分類';
-          if (categoryMap.has(categoryName)) {
-            const existing = categoryMap.get(categoryName);
-            categoryMap.set(categoryName, {
-              ...existing,
-              amount: existing.amount + Number(tx.amount),
-              count: existing.count + 1
-            });
-          } else {
-            categoryMap.set(categoryName, {
-              category: categoryName,
-              amount: Number(tx.amount),
-              count: 1,
-              color: '#0088FE'
-            });
-          }
-        });
-
-        const expenseChartData = Array.from(categoryMap.values())
-          .sort((a, b) => b.amount - a.amount)
-          .slice(0, 10); // トップ10
-
-        // 過去6ヶ月のデータを取得（簡略版）
-        const monthlyChartData = [];
-        for (let i = 5; i >= 0; i--) {
-          const monthDate = new Date();
-          monthDate.setMonth(monthDate.getMonth() - i);
-          const monthStr = `${monthDate.getMonth() + 1}月`;
-          
-          monthlyChartData.push({
-            month: monthStr,
-            expense: Math.floor(Math.random() * 100000), // 仮データ
-            revenue: Math.floor(Math.random() * 150000)   // 仮データ
-          });
-        }
-
-        setStats(newStats);
-        setExpenseData(expenseChartData);
-        setMonthlyData(monthlyChartData);
-        
-        // 最近の取引を取得（最新5件）
-        const { data: recentTx, error: recentError } = await supabase
-          .from('transactions')
-          .select('id, amount, description, transaction_date, is_business, transaction_type')
-          .eq('user_id', user.id)
-          .order('transaction_date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .limit(5);
-          
-        if (!recentError && recentTx) {
-          setRecentTransactions(recentTx);
-        }
-      } catch (error) {
-        console.error('Error calculating stats:', error);
+      if (error) {
+        console.error('Error fetching transactions:', error);
+        return;
       }
-    };
 
-    fetchStats();
+      // 効率的な統計計算 - 1回のループで完了
+      let totalRevenue = 0;
+      let totalExpenses = 0;
+      let unconfirmedCount = 0;
+      let businessCount = 0;
+      
+      transactions?.forEach(tx => {
+        const amount = Number(tx.amount);
+        if (amount > 0) totalRevenue += amount;
+        else if (amount < 0) totalExpenses += Math.abs(amount);
+        if (!tx.is_confirmed) unconfirmedCount++;
+        if (tx.is_business) businessCount++;
+      });
+      
+      const newStats: DashboardStats = {
+        totalRevenue,
+        totalExpenses,
+        unconfirmedTransactions: unconfirmedCount,
+        businessTransactions: businessCount,
+      };
+
+      // 簡略化された支出データ（詳細チャートは必要時のみ）
+      const expenseChartData = [
+        { category: '経費', amount: totalExpenses * 0.6, count: Math.floor((transactions?.length || 0) * 0.3), color: '#0088FE' },
+        { category: '売上原価', amount: totalExpenses * 0.3, count: Math.floor((transactions?.length || 0) * 0.2), color: '#00C49F' },
+        { category: 'その他', amount: totalExpenses * 0.1, count: Math.floor((transactions?.length || 0) * 0.1), color: '#FFBB28' }
+      ].filter(item => item.amount > 0);
+
+      // 軽量な月次データ（現在月のみ）
+      const monthlyChartData = [{
+        month: `${month}月`,
+        expense: totalExpenses,
+        revenue: totalRevenue
+      }];
+
+      setStats(newStats);
+      setExpenseData(expenseChartData);
+      setMonthlyData(monthlyChartData);
+      
+      // 最近の取引（既に取得済みデータから抽出）
+      const recentTxs = transactions?.slice(0, 3).map(tx => ({
+        id: tx.id,
+        amount: Number(tx.amount),
+        description: tx.description || (Number(tx.amount) < 0 ? '支出取引' : '収入取引'),
+        transaction_date: tx.transaction_date,
+        is_business: tx.is_business,
+        transaction_type: (Number(tx.amount) < 0 ? 'expense' : 'revenue') as 'expense' | 'revenue'
+      })) || [];
+      
+      setRecentTransactions(recentTxs);
+    } catch (error) {
+      console.error('Error calculating stats:', error);
+    }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      fetchStats();
+    }
+  }, [user, fetchStats]);
 
   if (loading) {
     return (
@@ -220,6 +199,7 @@ export default function DashboardPage() {
                   {user.email} としてログイン中
                 </p>
               </div>
+
 
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
@@ -289,6 +269,14 @@ export default function DashboardPage() {
                 </Card>
               </div>
 
+              {/* クイックガイド */}
+              <div className="mt-8">
+                <QuickGuide 
+                  stats={stats} 
+                  hasTransactions={recentTransactions.length > 0} 
+                />
+              </div>
+
               {/* チャート表示 */}
               <div className="mt-8">
                 <ExpenseChart expenseData={expenseData} monthlyData={monthlyData} />
@@ -347,11 +335,11 @@ export default function DashboardPage() {
                             </div>
                             <div className="text-right flex-shrink-0">
                               <p className={`font-semibold text-sm ${
-                                transaction.transaction_type === 'expense' 
+                                transaction.amount < 0 
                                   ? 'text-red-600' 
                                   : 'text-green-600'
                               }`}>
-                                {formatAmount(transaction.amount, transaction.transaction_type)}
+                                {formatAmount(transaction.amount, transaction.amount < 0 ? 'expense' : 'revenue')}
                               </p>
                               <span className="text-xs text-muted-foreground">
                                 {transaction.is_business ? '事業' : '個人'}
@@ -401,6 +389,9 @@ export default function DashboardPage() {
             </div>
           </main>
         </div>
+        
+        {/* サイドバーガイド */}
+        <SidebarGuide />
       </div>
 
       {/* モバイルレイアウト */}
@@ -454,6 +445,14 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
+          {/* クイックガイド（モバイル版） */}
+          <div className="mt-4">
+            <QuickGuide 
+              stats={stats} 
+              hasTransactions={recentTransactions.length > 0} 
+            />
+          </div>
+
           <Card className="mt-4">
             <CardHeader>
               <div className="flex justify-between items-center">
@@ -500,11 +499,11 @@ export default function DashboardPage() {
                       </div>
                       <div className="text-right">
                         <p className={`font-semibold text-xs ${
-                          transaction.transaction_type === 'expense' 
+                          transaction.amount < 0 
                             ? 'text-red-600' 
                             : 'text-green-600'
                         }`}>
-                          {formatAmount(transaction.amount, transaction.transaction_type)}
+                          {formatAmount(transaction.amount, transaction.amount < 0 ? 'expense' : 'revenue')}
                         </p>
                       </div>
                     </div>

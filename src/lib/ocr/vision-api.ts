@@ -596,9 +596,28 @@ export class ReceiptOCR {
       
       // JSONを抽出（マークダウンのコードブロックを除去）
       const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, responseText];
-      const jsonText = jsonMatch[1].trim();
+      let jsonText = jsonMatch[1].trim();
       
-      const parsedData = JSON.parse(jsonText);
+      // 制御文字を除去（JSONパースエラーを防ぐ）
+      jsonText = jsonText.replace(/[\x00-\x1F\x7F]/g, '');
+      
+      let parsedData;
+      try {
+        parsedData = JSON.parse(jsonText);
+      } catch (parseError) {
+        console.error('JSON parse error, raw text:', jsonText.substring(0, 500));
+        console.error('Parse error:', parseError);
+        
+        // より柔軟なJSONクリーンアップを試行
+        jsonText = jsonText
+          .replace(/,\s*}/g, '}')  // 末尾カンマ除去
+          .replace(/,\s*]/g, ']')  // 配列末尾カンマ除去
+          .replace(/\n/g, ' ')     // 改行をスペースに変換
+          .replace(/\t/g, ' ')     // タブをスペースに変換
+          .replace(/\s+/g, ' ');   // 連続スペースを1つに
+        
+        parsedData = JSON.parse(jsonText);
+      }
       
       // 複数レシート対応
       if (parsedData.receipts && Array.isArray(parsedData.receipts)) {
@@ -674,7 +693,13 @@ export class ReceiptOCR {
       });
 
       if (!response.ok) {
-        throw new Error(`Vision API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error('Vision API Error Response:', errorText);
+        
+        if (response.status === 403) {
+          throw new Error(`Vision API認証エラー: APIキーが無効か、APIが有効化されていません (${response.status})`);
+        }
+        throw new Error(`Vision API error: ${response.status} - ${errorText}`);
       }
 
       const result: VisionAPIResponse = await response.json();
@@ -697,6 +722,26 @@ export class ReceiptOCR {
       return '';
     } catch (error) {
       console.error('OCR extraction failed:', error);
+      
+      // 開発時のフォールバック（全てのAPIが失敗した場合）
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('⚠️ Development mode: Using mock OCR data');
+        const mockResult = this.generateMockData(imageBase64);
+        
+        // 複数レシートの場合は、そのまま返す
+        if (mockResult.multipleReceipts && mockResult.totalCount) {
+          console.log(`📄 モック: ${mockResult.totalCount}枚のレシートを生成`);
+          return {
+            ocrText: mockResult.ocrText,
+            extractedData: mockResult.extractedData,
+            multipleReceipts: mockResult.multipleReceipts,
+            totalCount: mockResult.totalCount
+          } as any;
+        }
+        
+        return mockResult;
+      }
+      
       throw error;
     }
   }
@@ -843,5 +888,51 @@ export class ReceiptOCR {
       ocrText,
       extractedData,
     };
+  }
+
+  // 開発時のモックデータ生成
+  private generateMockData(imageBase64: string): { ocrText: string; extractedData: ExtractedData; multipleReceipts?: ExtractedData[]; totalCount?: number } {
+    const mockStores = ['セブンイレブン', 'ファミリーマート', 'ローソン', 'イオン', 'スターバックス', 'マクドナルド', 'ドトール', 'サブウェイ'];
+    
+    // テスト用に3-8枚のレシートを生成（複数レシート機能をテスト）
+    const receiptCount = Math.floor(Math.random() * 6) + 3;
+    const multipleReceipts: ExtractedData[] = [];
+    
+    for (let i = 0; i < receiptCount; i++) {
+      const mockStore = mockStores[Math.floor(Math.random() * mockStores.length)];
+      const mockAmount = Math.floor(Math.random() * 5000) + 100;
+      const mockDate = new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      multipleReceipts.push({
+        amount: mockAmount,
+        merchantName: mockStore,
+        date: mockDate,
+        description: `${mockStore}での購入`,
+        confidence: 0.90 + Math.random() * 0.1
+      });
+    }
+    
+    const mockOcrText = multipleReceipts.map((receipt, index) => `
+--- レシート${index + 1} ---
+${receipt.merchantName}
+合計 ¥${receipt.amount}
+${receipt.date}
+`).join('\n');
+
+    // 複数レシート形式で返す
+    console.log(`🎲 モックデータ生成: ${receiptCount}枚のレシート`);
+    if (receiptCount >= 1) {
+      return {
+        ocrText: mockOcrText,
+        extractedData: multipleReceipts[0], // 最初のレシートを代表として
+        multipleReceipts,
+        totalCount: receiptCount
+      };
+    } else {
+      return {
+        ocrText: mockOcrText,
+        extractedData: multipleReceipts[0]
+      };
+    }
   }
 }

@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/header';
 import { Sidebar } from '@/components/layout/sidebar';
 import { BottomNav } from '@/components/layout/bottom-nav';
+import { SidebarGuide } from '@/components/layout/sidebar-guide';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,8 @@ import {
   Calendar,
   DollarSign,
   CheckCheck,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 
 interface UnconfirmedTransaction {
@@ -29,7 +31,6 @@ interface UnconfirmedTransaction {
   amount: number;
   description: string;
   transaction_date: string;
-  transaction_type: 'expense' | 'revenue';
   is_business: boolean;
   category_id?: string;
   account_categories?: {
@@ -47,6 +48,7 @@ export default function ApprovalPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [processingApproval, setProcessingApproval] = useState(false);
+  const [processingDelete, setProcessingDelete] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -72,7 +74,6 @@ export default function ApprovalPage() {
           amount,
           description,
           transaction_date,
-          transaction_type,
           is_business,
           category_id,
           created_at,
@@ -119,14 +120,21 @@ export default function ApprovalPage() {
     try {
       setProcessingApproval(true);
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('transactions')
         .update({ 
           is_confirmed: true
         })
-        .in('id', Array.from(selectedIds));
+        .in('id', Array.from(selectedIds))
+        .select();
 
       if (error) throw error;
+
+      console.log('承認処理結果:', {
+        updated: data?.length || 0,
+        selectedIds: Array.from(selectedIds),
+        updatedRecords: data
+      });
 
       // 成功後、リストを更新
       await fetchUnconfirmedTransactions();
@@ -155,6 +163,35 @@ export default function ApprovalPage() {
     } catch (error) {
       console.error('Error rejecting transaction:', error);
       alert('削除処理でエラーが発生しました');
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    const confirmed = confirm(`選択した${selectedIds.size}件の取引を削除しますか？この操作は取り消せません。`);
+    if (!confirmed) return;
+
+    try {
+      setProcessingDelete(true);
+      
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      // 成功後、リストを更新
+      await fetchUnconfirmedTransactions();
+      setSelectedIds(new Set());
+      
+      alert(`${selectedIds.size}件の取引を削除しました`);
+    } catch (error) {
+      console.error('Error deleting transactions:', error);
+      alert('削除処理でエラーが発生しました');
+    } finally {
+      setProcessingDelete(false);
     }
   };
 
@@ -241,8 +278,8 @@ export default function ApprovalPage() {
                     <div className="text-2xl font-bold">
                       {formatCurrency(
                         transactions
-                          .filter(t => t.transaction_type === 'expense')
-                          .reduce((sum, t) => sum + t.amount, 0)
+                          .filter(t => Number(t.amount) < 0)
+                          .reduce((sum, t) => sum + Math.abs(t.amount), 0)
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -270,11 +307,20 @@ export default function ApprovalPage() {
                       <div className="flex items-center space-x-2">
                         <Button
                           onClick={handleApproveSelected}
-                          disabled={selectedIds.size === 0 || processingApproval}
+                          disabled={selectedIds.size === 0 || processingApproval || processingDelete}
                           size="sm"
                         >
                           <Check className="mr-2 h-4 w-4" />
                           {processingApproval ? '処理中...' : `${selectedIds.size}件を承認`}
+                        </Button>
+                        <Button
+                          onClick={handleDeleteSelected}
+                          disabled={selectedIds.size === 0 || processingDelete || processingApproval}
+                          size="sm"
+                          variant="destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {processingDelete ? '削除中...' : `${selectedIds.size}件を削除`}
                         </Button>
                       </div>
                     </div>
@@ -325,8 +371,8 @@ export default function ApprovalPage() {
                                     {transaction.description}
                                   </h4>
                                   
-                                  <Badge variant={transaction.transaction_type === 'expense' ? 'destructive' : 'default'}>
-                                    {transaction.transaction_type === 'expense' ? '支出' : '収入'}
+                                  <Badge variant={Number(transaction.amount) < 0 ? 'destructive' : 'default'}>
+                                    {Number(transaction.amount) < 0 ? '支出' : '収入'}
                                   </Badge>
                                   
                                   <Badge variant={transaction.is_business ? 'default' : 'secondary'}>
@@ -383,6 +429,9 @@ export default function ApprovalPage() {
             </div>
           </main>
         </div>
+        
+        {/* サイドバーガイド */}
+        <SidebarGuide />
       </div>
 
       {/* モバイルレイアウト */}
@@ -419,22 +468,43 @@ export default function ApprovalPage() {
           {transactions.length > 0 && (
             <Card className="mb-4">
               <CardContent className="pt-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={selectedIds.size === transactions.length}
-                      onCheckedChange={handleSelectAll}
-                    />
-                    <span className="text-sm">すべて選択</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        checked={selectedIds.size === transactions.length}
+                        onCheckedChange={handleSelectAll}
+                      />
+                      <span className="text-sm">すべて選択</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {selectedIds.size}件選択中
+                    </span>
                   </div>
                   
-                  <Button
-                    onClick={handleApproveSelected}
-                    disabled={selectedIds.size === 0 || processingApproval}
-                    size="sm"
-                  >
-                    {selectedIds.size}件承認
-                  </Button>
+                  {selectedIds.size > 0 && (
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        onClick={handleApproveSelected}
+                        disabled={processingApproval || processingDelete}
+                        size="sm"
+                        className="flex-1"
+                      >
+                        <Check className="mr-1 h-3 w-3" />
+                        {processingApproval ? '処理中...' : '承認'}
+                      </Button>
+                      <Button
+                        onClick={handleDeleteSelected}
+                        disabled={processingDelete || processingApproval}
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1"
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        {processingDelete ? '削除中...' : '削除'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -474,8 +544,8 @@ export default function ApprovalPage() {
                       <div className="text-right">
                         <p className="font-semibold">{formatCurrency(transaction.amount)}</p>
                         <div className="flex space-x-1 mt-1">
-                          <Badge variant={transaction.transaction_type === 'expense' ? 'destructive' : 'default'} className="text-xs">
-                            {transaction.transaction_type === 'expense' ? '支出' : '収入'}
+                          <Badge variant={Number(transaction.amount) < 0 ? 'destructive' : 'default'} className="text-xs">
+                            {Number(transaction.amount) < 0 ? '支出' : '収入'}
                           </Badge>
                         </div>
                       </div>

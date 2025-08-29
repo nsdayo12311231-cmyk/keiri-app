@@ -66,18 +66,19 @@ export default function TaxPage() {
 
       const { data: transactions, error } = await supabase
         .from('transactions')
-        .select('amount, transaction_type, is_business')
+        .select('amount, is_business')
         .eq('user_id', user.id)
         .gte('transaction_date', startDate)
         .lte('transaction_date', endDate);
 
       if (error) throw error;
 
-      const revenues = transactions?.filter(t => t.transaction_type === 'revenue') || [];
-      const expenses = transactions?.filter(t => t.transaction_type === 'expense' && t.is_business) || [];
+      // Determine revenues (positive amounts) and business expenses (negative amounts where is_business is true)
+      const revenues = transactions?.filter(t => Number(t.amount) > 0) || [];
+      const expenses = transactions?.filter(t => Number(t.amount) < 0 && t.is_business) || [];
 
       const totalRevenue = revenues.reduce((sum, t) => sum + Number(t.amount), 0);
-      const totalExpenses = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+      const totalExpenses = expenses.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
 
       setCurrentYearData({ revenue: totalRevenue, expenses: totalExpenses });
       

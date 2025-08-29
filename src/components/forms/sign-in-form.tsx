@@ -35,20 +35,23 @@ export function SignInForm() {
       if (error) {
         setError(error.message === 'Invalid login credentials' 
           ? 'メールアドレスまたはパスワードが間違っています'
-          : error.message);
+          : `ログインエラー: ${error.message}`);
       } else if (data.session) {
         router.push('/dashboard');
+      } else {
+        setError('ログインに失敗しました。再度お試しください。');
       }
-    } catch (error) {
-      setError('予期しないエラーが発生しました');
+    } catch (error: any) {
+      console.error('ログインエラー:', error);
+      setError(`予期しないエラー: ${error?.message || 'ログインに失敗しました'}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4 py-8">
+      <Card className="w-full max-w-md mx-auto">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
             <Calculator className="h-12 w-12 text-primary" />
@@ -95,8 +98,8 @@ export function SignInForm() {
 
             {error && (
               <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-md">
-                <AlertCircle className="h-4 w-4" />
-                <span>{error}</span>
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span className="break-words">{error}</span>
               </div>
             )}
 
@@ -108,9 +111,9 @@ export function SignInForm() {
         
         <CardFooter className="flex flex-col space-y-2">
           <div className="text-sm text-center text-muted-foreground">
-            <Link href="/auth/reset-password" className="text-primary hover:underline">
-              パスワードをお忘れですか？
-            </Link>
+            <span className="text-muted-foreground/70">
+              パスワードをお忘れの場合はサポートまでお問い合わせください
+            </span>
           </div>
           <div className="text-sm text-center text-muted-foreground">
             アカウントをお持ちでない方は{' '}

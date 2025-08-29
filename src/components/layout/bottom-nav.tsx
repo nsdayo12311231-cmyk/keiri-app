@@ -10,6 +10,7 @@ import {
   CheckCheck,
   Download,
   Calculator,
+  Upload,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -35,6 +36,11 @@ const navItems: NavItem[] = [
     href: '/approval',
     label: '承認',
     icon: CheckCheck,
+  },
+  {
+    href: '/import',
+    label: 'CSV',
+    icon: Upload,
   },
   {
     href: '/reports',
@@ -70,7 +76,7 @@ export function BottomNav({ className }: BottomNavProps) {
       'fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border md:hidden',
       className
     )}>
-      <div className="grid grid-cols-6 h-16">
+      <div className="grid grid-cols-7 h-16">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;

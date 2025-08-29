@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Camera, Upload, FileImage, X, Loader2, Check } from 'lucide-react';
+import { EnhancedPreview } from './enhanced-preview';
+import { PhotographyHelp } from './photography-help';
 
 interface ReceiptUploadProps {
   onUpload: (files: File[]) => Promise<void>;
@@ -109,17 +111,18 @@ export function ReceiptUpload({ onUpload, isProcessing = false, allowMultiple = 
     addDebugLog(`有効ファイル: ${validFiles.length}枚 (制限: ${currentMaxFiles}枚)`);
     setSelectedFiles(validFiles);
     
-    // プレビュー生成（最初の3枚まで表示）
-    const previewFiles = validFiles.slice(0, 3);
-    previewFiles.forEach((file, index) => {
+    // 全ファイルのプレビュー生成
+    const newPreviews: string[] = [];
+    validFiles.forEach((file, index) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
-        setPreviews(prev => {
-          const newPreviews = [...prev];
-          newPreviews[index] = result;
-          return newPreviews;
-        });
+        newPreviews[index] = result;
+        
+        // 全てのプレビューが生成されたらstateを更新
+        if (newPreviews.filter(Boolean).length === validFiles.length) {
+          setPreviews(newPreviews);
+        }
       };
       reader.readAsDataURL(file);
     });
@@ -173,6 +176,15 @@ export function ReceiptUpload({ onUpload, isProcessing = false, allowMultiple = 
     setPreviews([]);
     setUploadStatus('idle');
     setProcessingProgress({ current: 0, total: 0 });
+  };
+
+  // EnhancedPreviewからのファイル/プレビュー更新ハンドラー
+  const handleFilesUpdate = (newFiles: File[]) => {
+    setSelectedFiles(newFiles);
+  };
+
+  const handlePreviewsUpdate = (newPreviews: string[]) => {
+    setPreviews(newPreviews);
   };
 
   const triggerFileInput = () => {
@@ -370,46 +382,23 @@ export function ReceiptUpload({ onUpload, isProcessing = false, allowMultiple = 
           </div>
         ) : (
           <div className="space-y-4">
-            {/* プレビュー */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-medium">選択されたレシート ({selectedFiles.length}枚)</h3>
-                <button
-                  onClick={clearSelection}
-                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              
-              {/* プレビュー画像（最大3枚表示） */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {previews.slice(0, 3).map((preview, index) => (
-                  <div key={index} className="relative rounded-lg overflow-hidden bg-muted">
-                    <img
-                      src={preview}
-                      alt={`Receipt preview ${index + 1}`}
-                      className="w-full h-32 object-contain"
-                    />
-                    <div className="absolute bottom-1 left-1 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                      {selectedFiles[index]?.name.substring(0, 15)}...
-                    </div>
-                  </div>
-                ))}
-                {selectedFiles.length > 3 && (
-                  <div className="flex items-center justify-center bg-muted rounded-lg h-32">
-                    <div className="text-center text-muted-foreground">
-                      <FileImage className="h-8 w-8 mx-auto mb-2" />
-                      <p className="text-sm">他 {selectedFiles.length - 3}枚</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div className="text-sm text-muted-foreground">
-                <p>合計サイズ: {(selectedFiles.reduce((sum, file) => sum + file.size, 0) / 1024 / 1024).toFixed(1)} MB</p>
-              </div>
+            {/* 強化されたプレビュー */}
+            <div className="flex justify-between items-center">
+              <h3 className="font-medium">選択されたレシート ({selectedFiles.length}枚)</h3>
+              <button
+                onClick={clearSelection}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
+            
+            <EnhancedPreview
+              files={selectedFiles}
+              previews={previews}
+              onFilesUpdate={handleFilesUpdate}
+              onPreviewsUpdate={handlePreviewsUpdate}
+            />
 
             {/* プログレス表示 */}
             {(uploadStatus === 'uploading' && processingProgress.total > 0) && (

@@ -370,8 +370,10 @@ export default function ReceiptsPage() {
           console.error('Transaction save error:', transactionError);
           console.error('Transaction data that failed:', transactionData);
         } else {
+          // 処理成功時のロジック
+          console.log('Transaction saved successfully', {
             amount: extractedData.amount,
-            categoryName: classificationResult?.categoryName,
+            categoryId: classificationResult?.categoryId,
             confidence: classificationResult?.confidence,
             isBusiness: classificationResult?.isBusiness
           });
@@ -573,6 +575,7 @@ export default function ReceiptsPage() {
       const processedReceipts: Array<{fileName: string, data: ExtractedData, receiptIndex?: number}> = [];
       
       successResults.forEach((r, index) => {
+        console.log('Processing receipt:', {
           fileName: r.file.name,
           hasMultipleReceipts: !!r.data?.multipleReceipts,
           multipleCount: r.data?.multipleCount,

@@ -14,7 +14,6 @@ const nextConfig: NextConfig = {
     minimumCacheTTL: 3600,
   },
   // 開発時のパフォーマンス向上
-  swcMinify: true,
   poweredByHeader: false,
   eslint: {
     ignoreDuringBuilds: true,

@@ -313,8 +313,90 @@ export default function SettingsPage() {
       {/* モバイルレイアウト */}
       <div className="md:hidden pb-16">
         <main className="p-4">
-          <div className="text-center text-muted-foreground">
-            設定画面のモバイル版は準備中です。デスクトップでご利用ください。
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground mb-2">設定</h1>
+            <p className="text-muted-foreground text-sm">
+              アカウント設定と経費管理の設定
+            </p>
+          </div>
+
+          {/* ユーザー情報カード */}
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">メールアドレス</p>
+                  <p className="font-medium">{user?.email}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleLogout}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  ログアウト
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 主要な設定項目（モバイル向け簡略版） */}
+          <div className="space-y-3">
+            <Card>
+              <CardContent className="p-0">
+                <Link href="/profile/basic" className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <User className="h-5 w-5 text-primary" />
+                    <div>
+                      <h3 className="font-medium">基本プロフィール</h3>
+                      <p className="text-sm text-muted-foreground">氏名、事業形態等</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-0">
+                <Link href="/profile/setup" className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <Briefcase className="h-5 w-5 text-primary" />
+                    <div>
+                      <h3 className="font-medium">詳細プロフィール</h3>
+                      <p className="text-sm text-muted-foreground">業種、働き方等</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-0">
+                <Link href="/profile/expenses" className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <DollarSign className="h-5 w-5 text-primary" />
+                    <div>
+                      <h3 className="font-medium">経費設定</h3>
+                      <p className="text-sm text-muted-foreground">自動分類設定</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-0">
+                <Link href="/profile/tax" className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <Calculator className="h-5 w-5 text-primary" />
+                    <div>
+                      <h3 className="font-medium">税務設定</h3>
+                      <p className="text-sm text-muted-foreground">申告方法等</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>

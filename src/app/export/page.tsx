@@ -87,7 +87,14 @@ export default function ExportPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const { showToast } = useToast();
-  
+
+  // 認証チェック
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/auth/signin');
+    }
+  }, [user, loading, router]);
+
   // Form state
   const [periodType, setPeriodType] = useState<'year' | 'month' | 'custom'>('year');
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);

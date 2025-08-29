@@ -2,6 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
 import { 
   Home, 
   Receipt, 
@@ -14,6 +19,8 @@ import {
   CheckCheck,
   Download,
   Upload,
+  LogOut,
+  User,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -88,6 +95,23 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
+  const router = useRouter();
+  const { showToast } = useToast();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await signOut();
+      showToast('success', 'ログアウト完了', 'ログアウトしました');
+      router.push('/');
+    } catch (error) {
+      showToast('error', 'エラー', 'ログアウト中にエラーが発生しました');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   // メニュー項目のdata属性マッピング
   const getMenuDataAttribute = (href: string) => {
@@ -115,7 +139,7 @@ export function Sidebar({ className }: SidebarProps) {
       <div className="flex-1 flex flex-col min-h-0 border-r border-border bg-background">
         {/* Logo */}
         <div className="flex items-center h-16 flex-shrink-0 px-4 border-b border-border">
-          <Link href="/" className="flex items-center space-x-2">
+          <Link href="/dashboard" className="flex items-center space-x-2">
             <Calculator className="h-8 w-8 text-primary" />
             <span className="text-xl font-bold text-foreground">Keiri App</span>
           </Link>
@@ -151,16 +175,40 @@ export function Sidebar({ className }: SidebarProps) {
         </nav>
 
         {/* User Section */}
-        <div className="flex-shrink-0 flex border-t border-border p-4">
-          <div className="flex items-center w-full">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">
-                ユーザー名
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                user@example.com
-              </p>
+        <div className="flex-shrink-0 border-t border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <User className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {user?.email?.split('@')[0] || 'ユーザー'}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {user?.email || 'user@example.com'}
+                </p>
+              </div>
             </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Button variant="outline" size="sm" asChild className="w-full justify-start">
+              <Link href="/settings">
+                <Settings className="mr-2 h-4 w-4" />
+                設定
+              </Link>
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              {isLoggingOut ? 'ログアウト中...' : 'ログアウト'}
+            </Button>
           </div>
         </div>
       </div>

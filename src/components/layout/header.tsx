@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Menu, X, Calculator } from 'lucide-react';
+import { Menu, X, Calculator, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 
 interface HeaderProps {
   className?: string;
@@ -12,9 +15,26 @@ interface HeaderProps {
 
 export function Header({ className }: HeaderProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { user, loading, signOut } = useAuth();
+  const router = useRouter();
+  const { showToast } = useToast();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await signOut();
+      showToast('success', 'ログアウト完了', 'ログアウトしました');
+      router.push('/');
+    } catch (error) {
+      showToast('error', 'エラー', 'ログアウト中にエラーが発生しました');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -55,14 +75,42 @@ export function Header({ className }: HeaderProps) {
             </Link>
           </nav>
 
-          {/* Desktop Auth Buttons */}
+          {/* Desktop User Menu */}
           <div className="hidden md:flex items-center space-x-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/auth/signin">ログイン</Link>
-            </Button>
-            <Button size="sm" asChild>
-              <Link href="/auth/signup">新規登録</Link>
-            </Button>
+            {loading ? (
+              <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
+            ) : user ? (
+              <>
+                <div className="flex items-center space-x-3">
+                  <div className="text-sm text-right">
+                    <p className="font-medium text-foreground">{user.email?.split('@')[0]}</p>
+                    <p className="text-xs text-muted-foreground">ログイン中</p>
+                  </div>
+                  <div className="p-2 rounded-full bg-primary/10">
+                    <User className="h-4 w-4 text-primary" />
+                  </div>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {isLoggingOut ? 'ログアウト中...' : 'ログアウト'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/auth/signin">ログイン</Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href="/auth/signup">新規登録</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -113,13 +161,39 @@ export function Header({ className }: HeaderProps) {
               >
                 設定
               </Link>
-              <div className="flex flex-col space-y-2 pt-4 border-t border-border">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/auth/signin">ログイン</Link>
-                </Button>
-                <Button size="sm" asChild>
-                  <Link href="/auth/signup">新規登録</Link>
-                </Button>
+              <div className="pt-4 border-t border-border">
+                {user ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-3 px-3">
+                      <div className="p-2 rounded-full bg-primary/10">
+                        <User className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{user.email?.split('@')[0]}</p>
+                        <p className="text-xs text-muted-foreground">ログイン中</p>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                      className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      {isLoggingOut ? 'ログアウト中...' : 'ログアウト'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col space-y-2">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href="/auth/signin">ログイン</Link>
+                    </Button>
+                    <Button size="sm" asChild>
+                      <Link href="/auth/signup">新規登録</Link>
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

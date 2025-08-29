@@ -95,10 +95,19 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-  const { user, signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const { showToast } = useToast();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // 未ログイン時はサイドバーを表示しない
+  if (loading) {
+    return null;
+  }
+
+  if (!user) {
+    return null;
+  }
 
   const handleLogout = async () => {
     try {

@@ -58,7 +58,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/auth/signin');
+      console.log('No user found, redirecting to signin');
+      router.replace('/auth/signin');
     }
   }, [user, loading, router]);
 
@@ -183,6 +184,28 @@ export default function DashboardPage() {
     return `${sign}¥${amount.toLocaleString()}`;
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <p className="text-muted-foreground mb-4">認証が必要です</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* デスクトップレイアウト */}
@@ -196,7 +219,7 @@ export default function DashboardPage() {
                   ダッシュボード
                 </h1>
                 <p className="text-muted-foreground">
-                  {user.email} としてログイン中
+                  {user?.email} としてログイン中
                 </p>
               </div>
 

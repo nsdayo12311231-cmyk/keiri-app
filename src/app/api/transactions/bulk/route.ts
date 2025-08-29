@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createServerClient();
+    const supabase = await createAuthenticatedServerClient();
 
     // 認証チェック
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -256,8 +256,8 @@ export async function GET(request: NextRequest) {
 
     // ユーザーの取引データを取得
     const { data: transactions, error: fetchError } = await supabase
-      .from('transaction_summary')
-      .select('*')
+      .from('transactions')
+      .select('id, amount, description, transaction_date, category_id, is_business, is_confirmed, created_at')
       .eq('user_id', user.id)
       .order('transaction_date', { ascending: false })
       .limit(1000);

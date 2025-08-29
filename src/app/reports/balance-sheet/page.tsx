@@ -112,11 +112,12 @@ export default function BalanceSheetPage() {
 
       // 取引データを取得
       const { data: transactions, error } = await supabase
-        .from('transaction_summary')
+        .from('transactions')
         .select(`
           amount,
           description,
-          transaction_date
+          transaction_date,
+          is_business
         `)
         .eq('user_id', user.id)
         .lte('transaction_date', end);

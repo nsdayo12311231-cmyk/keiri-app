@@ -58,6 +58,7 @@ export interface Database {
           amount: number;
           description: string;
           transaction_date: string;
+          transaction_type: 'expense' | 'revenue';
           category_id: string | null;
           merchant_name?: string;
           is_business: boolean;
@@ -78,6 +79,7 @@ export interface Database {
           amount: number;
           description: string;
           transaction_date: string;
+          transaction_type?: 'expense' | 'revenue';
           category_id?: string | null;
           merchant_name?: string;
           is_business?: boolean;
@@ -98,6 +100,7 @@ export interface Database {
           amount?: number;
           description?: string;
           transaction_date?: string;
+          transaction_type?: 'expense' | 'revenue';
           category_id?: string | null;
           merchant_name?: string;
           is_business?: boolean;

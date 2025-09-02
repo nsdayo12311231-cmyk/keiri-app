@@ -21,6 +21,74 @@ import { autoClassifyReceipt } from '@/lib/utils/receipt-classifier';
 import { classifyWithAI } from '@/lib/classification/huggingface-classifier';
 import { classifyWithOpenAI, setOpenAIApiKey } from '@/lib/classification/openai-classifier';
 
+// 画像を自動圧縮してBase64に変換する関数
+const compressImageToBase64 = async (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = () => {
+      // 元の画像サイズ
+      const originalWidth = img.width;
+      const originalHeight = img.height;
+      
+      // 最大サイズを設定（レシートの可読性を保つため）
+      const maxWidth = 1200;
+      const maxHeight = 1600;
+      
+      // アスペクト比を保持してリサイズ計算
+      let { width, height } = calculateOptimalSize(originalWidth, originalHeight, maxWidth, maxHeight);
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // 高品質で描画
+      ctx!.imageSmoothingEnabled = true;
+      ctx!.imageSmoothingQuality = 'high';
+      ctx!.drawImage(img, 0, 0, width, height);
+      
+      // 段階的に品質を下げて3MB以下にする
+      const tryCompress = (quality: number): void => {
+        const base64 = canvas.toDataURL('image/jpeg', quality);
+        const sizeKB = Math.round(base64.length * 0.75 / 1024); // Base64サイズ推定
+        
+        console.log(`圧縮試行: 品質${Math.round(quality * 100)}%, サイズ: ${sizeKB}KB`);
+        
+        if (base64.length < 3 * 1024 * 1024 || quality < 0.3) {
+          // 3MB以下になったか、最低品質に達した
+          console.log(`✅ 圧縮完了: 元${Math.round(file.size/1024)}KB → ${sizeKB}KB`);
+          resolve(base64);
+        } else {
+          // まだ大きいので品質を下げて再試行
+          tryCompress(quality - 0.1);
+        }
+      };
+      
+      // 最初は高品質から開始
+      tryCompress(0.9);
+    };
+    
+    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+    img.src = URL.createObjectURL(file);
+  });
+};
+
+// 最適なサイズを計算する関数
+const calculateOptimalSize = (originalWidth: number, originalHeight: number, maxWidth: number, maxHeight: number) => {
+  let width = originalWidth;
+  let height = originalHeight;
+  
+  // アスペクト比を保持してリサイズ
+  if (width > maxWidth || height > maxHeight) {
+    const ratio = Math.min(maxWidth / width, maxHeight / height);
+    width *= ratio;
+    height *= ratio;
+  }
+  
+  return { width: Math.round(width), height: Math.round(height) };
+};
+
 interface ExtractedData {
   amount?: number;
   description?: string;
@@ -480,19 +548,9 @@ export default function ReceiptsPage() {
           const fileExt = file.name.split('.').pop();
           fileName = `${user.id}/${Date.now()}_${i}.${fileExt}`;
 
-          // ファイルサイズチェック（3MB制限）
-          const maxSize = 3 * 1024 * 1024; // 3MB
-          if (file.size > maxSize) {
-            throw new Error(`ファイルサイズが大きすぎます。${Math.round(file.size / 1024 / 1024 * 10) / 10}MB > 3MB制限。より小さな画像をお試しください。`);
-          }
-
-          // Base64変換
-          imageBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
+          // 画像圧縮処理（3MB以下に自動調整）
+          imageBase64 = await compressImageToBase64(file);
+          console.log('圧縮後のBase64サイズ:', Math.round(imageBase64.length / 1024), 'KB');
 
           // 処理開始時点でレシート記録を作成（失敗時の追跡のため）
           const { data: initialReceipt, error: initialError } = await supabase

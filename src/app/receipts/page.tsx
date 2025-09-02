@@ -351,16 +351,40 @@ export default function ReceiptsPage() {
       // 抽出されたデータがある場合、取引として保存（分類結果を活用）
       if (extractedData.amount && extractedData.amount > 0) {
         // ユーザーのデフォルト現金口座を取得
-        const { data: cashAccount } = await supabase
+        let { data: cashAccount } = await supabase
           .from('accounts')
           .select('id')
           .eq('user_id', user.id)
           .eq('account_name', '現金')
           .single();
 
+        // 現金口座が存在しない場合は自動作成
+        if (!cashAccount) {
+          console.log('現金口座が存在しないため自動作成します');
+          const { data: newAccount, error: accountError } = await supabase
+            .from('accounts')
+            .insert({
+              user_id: user.id,
+              account_type: 'bank',
+              account_name: '現金',
+              institution_name: 'デフォルト',
+              is_active: true,
+              metadata: { is_default: true, auto_created: true }
+            })
+            .select('id')
+            .single();
+            
+          if (accountError) {
+            console.error('現金口座作成エラー:', accountError);
+            throw new Error(`現金口座の作成に失敗しました: ${accountError.message}`);
+          }
+          cashAccount = newAccount;
+          console.log('現金口座を作成しました:', cashAccount.id);
+        }
+
         const transactionData = {
           user_id: user.id,
-          account_id: cashAccount?.id || null, // 動的に取得したアカウントID
+          account_id: cashAccount.id, // 確実に存在するアカウントID
           amount: extractedData.amount,
           description: extractedData.description || 'レシートからの取引',
           transaction_date: extractedData.date || new Date().toISOString().split('T')[0],

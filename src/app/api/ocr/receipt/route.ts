@@ -47,26 +47,44 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('OCR API Error:', error);
+    console.error('=== OCR API Critical Error ===');
+    console.error('Error type:', error?.constructor?.name);
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     
     let errorMessage = 'OCR processing failed';
+    let statusCode = 500;
+    
     if (error instanceof Error) {
       errorMessage = error.message;
       
       // 特定のエラータイプに応じたメッセージ
-      if (error.message.includes('API')) {
+      if (error.message.includes('API key') || error.message.includes('authentication')) {
+        errorMessage = 'API authentication failed';
+        statusCode = 401;
+      } else if (error.message.includes('API service') || error.message.includes('temporarily unavailable')) {
         errorMessage = 'API service temporarily unavailable';
+        statusCode = 503;
       } else if (error.message.includes('network') || error.message.includes('fetch')) {
         errorMessage = 'Network error: Please check your internet connection';
+        statusCode = 502;
       } else if (error.message.includes('timeout')) {
         errorMessage = 'Processing timeout: The operation took too long';
+        statusCode = 504;
       } else if (error.message.includes('quota') || error.message.includes('limit')) {
         errorMessage = 'API usage limit reached. Please try again later';
+        statusCode = 429;
       }
     }
 
+    console.error('Returning error response:', { error: errorMessage, status: statusCode });
+
     return NextResponse.json({ 
-      error: errorMessage 
-    }, { status: 500 });
+      error: errorMessage,
+      debug: process.env.NODE_ENV === 'development' ? {
+        originalError: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      } : undefined
+    }, { status: statusCode });
   }
 }

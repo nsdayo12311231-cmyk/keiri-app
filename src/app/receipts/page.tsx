@@ -518,12 +518,33 @@ export default function ReceiptsPage() {
               
               clearTimeout(timeoutId);
               
+              console.log('OCR Response status:', ocrResponse.status);
+              console.log('OCR Response headers:', Object.fromEntries(ocrResponse.headers.entries()));
+              
               if (!ocrResponse.ok) {
-                const errorData = await ocrResponse.json();
-                throw new Error(errorData.error || 'OCR processing failed');
+                const responseText = await ocrResponse.text();
+                console.error('OCR API Error Response:', responseText);
+                
+                let errorMessage = 'OCR processing failed';
+                try {
+                  const errorData = JSON.parse(responseText);
+                  errorMessage = errorData.error || 'OCR processing failed';
+                } catch (parseError) {
+                  errorMessage = `OCR API returned non-JSON response (${ocrResponse.status}): ${responseText.substring(0, 200)}`;
+                }
+                throw new Error(errorMessage);
               }
               
-              const ocrData = await ocrResponse.json();
+              const responseText = await ocrResponse.text();
+              console.log('OCR API Success Response:', responseText.substring(0, 500));
+              
+              let ocrData;
+              try {
+                ocrData = JSON.parse(responseText);
+              } catch (parseError) {
+                console.error('Failed to parse OCR response as JSON:', responseText.substring(0, 500));
+                throw new Error(`OCR API returned invalid JSON: ${parseError.message}`);
+              }
               result = ocrData.data;
               break; // 成功した場合はループを抜ける
               

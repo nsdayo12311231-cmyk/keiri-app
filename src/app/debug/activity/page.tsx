@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { getActivityTracker, trackFeatureUse } from '@/lib/analytics/activity-tracker'
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase/client'
 
 export default function ActivityDebugPage() {
   const [logs, setLogs] = useState<string[]>([])
   const [isTracking, setIsTracking] = useState(false)
   const [userInfo, setUserInfo] = useState<any>(null)
   const [tableExists, setTableExists] = useState<boolean | null>(null)
+  const [initialized, setInitialized] = useState(false)
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
@@ -18,90 +19,75 @@ export default function ActivityDebugPage() {
   }
 
   useEffect(() => {
+    if (initialized) return
+    setInitialized(true)
+    
     addLog('デバッグページが読み込まれました')
     
-    // ユーザー情報を取得
-    const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user }, error } = await supabase.auth.getUser()
-      
-      if (error) {
-        addLog(`認証エラー: ${error.message}`)
-      } else if (user) {
-        setUserInfo(user)
-        addLog(`ログイン中のユーザー: ${user.email}`)
-      } else {
-        addLog('ユーザーがログインしていません')
-      }
-    }
-
-    // テーブルの存在確認
-    const checkTables = async () => {
-      const supabase = createClient()
-      
+    const initializePage = async () => {
       try {
-        const { data, error } = await supabase
-          .from('user_activities')
-          .select('count', { count: 'exact', head: true })
+        // ユーザー情報を取得
+        addLog('ユーザー情報を確認中...')
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
         
-        if (error) {
-          addLog(`テーブルエラー: ${error.message}`)
-          setTableExists(false)
+        if (authError) {
+          addLog(`認証エラー: ${authError.message}`)
+        } else if (user) {
+          setUserInfo(user)
+          addLog(`ログイン中のユーザー: ${user.email}`)
         } else {
-          addLog('user_activitiesテーブルが存在します')
-          setTableExists(true)
+          addLog('ユーザーがログインしていません')
         }
+
+        // テーブルの存在確認
+        addLog('テーブルの存在確認中...')
+        try {
+          const { data, error } = await supabase
+            .from('user_activities')
+            .select('count', { count: 'exact', head: true })
+          
+          if (error) {
+            addLog(`テーブルエラー: ${error.message}`)
+            setTableExists(false)
+          } else {
+            addLog('user_activitiesテーブルが存在します')
+            setTableExists(true)
+          }
+        } catch (error) {
+          addLog(`テーブルチェックエラー: ${error}`)
+          setTableExists(false)
+        }
+
+        // ActivityTrackerの初期化を確認
+        addLog('ActivityTrackerを初期化中...')
+        try {
+          if (typeof window !== 'undefined') {
+            const tracker = getActivityTracker()
+            addLog('ActivityTracker が初期化されました')
+            setIsTracking(true)
+          }
+        } catch (error) {
+          addLog(`ActivityTracker初期化エラー: ${error}`)
+        }
+
+        addLog('初期化完了')
       } catch (error) {
-        addLog(`テーブルチェックエラー: ${error}`)
-        setTableExists(false)
+        addLog(`初期化エラー: ${error}`)
       }
     }
 
-    checkUser()
-    checkTables()
-
-    // ActivityTrackerの初期化を確認
-    try {
-      const tracker = getActivityTracker()
-      addLog('ActivityTracker が初期化されました')
-      setIsTracking(true)
-    } catch (error) {
-      addLog(`ActivityTracker初期化エラー: ${error}`)
-    }
-
-    // コンソールログをキャプチャ
-    const originalLog = console.log
-    const originalError = console.error
-    
-    console.log = (...args) => {
-      if (args[0] === '[ActivityTracker]') {
-        addLog(`Console: ${args.slice(1).join(' ')}`)
-      }
-      originalLog.apply(console, args)
-    }
-    
-    console.error = (...args) => {
-      if (args[0] === '[ActivityTracker]') {
-        addLog(`Error: ${args.slice(1).join(' ')}`)
-      }
-      originalError.apply(console, args)
-    }
-
-    return () => {
-      console.log = originalLog
-      console.error = originalError
-    }
-  }, [])
+    initializePage()
+  }, [initialized])
 
   const testPageView = () => {
     addLog('手動でページビューをテスト中...')
-    const tracker = getActivityTracker()
-    // プライベートメソッドなので、公開メソッドを使用
+    // ActivityTrackerが自動的に追跡するので、ログだけ追加
+    addLog('ページビューテストが実行されました')
   }
 
   const testClick = () => {
     addLog('手動でクリックイベントをテスト中...')
-    // このボタンのクリック自体が追跡される
+    addLog('クリックテストが実行されました（このクリックも自動追跡されます）')
   }
 
   const testFeature = async () => {
@@ -116,7 +102,6 @@ export default function ActivityDebugPage() {
 
   const testDirectInsert = async () => {
     addLog('直接データベースに挿入をテスト中...')
-    const supabase = createClient()
     
     try {
       const { error } = await supabase
@@ -125,7 +110,7 @@ export default function ActivityDebugPage() {
           user_id: userInfo?.id || null,
           session_id: `test-${Date.now()}`,
           action_type: 'direct_test',
-          page_url: window.location.href,
+          page_url: typeof window !== 'undefined' ? window.location.href : 'unknown',
           additional_data: { test: true }
         })
       

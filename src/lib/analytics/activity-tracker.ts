@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase/client'
 
 interface ActivityData {
   actionType: string
@@ -17,7 +17,7 @@ interface SessionData {
 }
 
 class ActivityTracker {
-  private supabase = createClient()
+  private supabaseClient = supabase
   private sessionId: string
   private pageStartTime: number = Date.now()
   private currentUserId: string | null = null
@@ -49,7 +49,7 @@ class ActivityTracker {
   private async initializeSession() {
     try {
       this.log('Initializing session...')
-      const { data: { user }, error: authError } = await this.supabase.auth.getUser()
+      const { data: { user }, error: authError } = await this.supabaseClient.auth.getUser()
       
       if (authError) {
         this.error('Auth error:', authError)
@@ -68,7 +68,7 @@ class ActivityTracker {
         
         this.log('Session data:', sessionData)
         
-        const { error: insertError } = await this.supabase
+        const { error: insertError } = await this.supabaseClient
           .from('user_sessions')
           .insert({
             session_id: this.sessionId,
@@ -159,7 +159,7 @@ class ActivityTracker {
       
       this.log('Tracking activity:', data.actionType, activityData)
       
-      const { error } = await this.supabase
+      const { error } = await this.supabaseClient
         .from('user_activities')
         .insert(activityData)
         
@@ -302,7 +302,7 @@ class ActivityTracker {
           navigation_type: navigation.type === 0 ? 'navigate' : navigation.type === 1 ? 'reload' : 'back_forward'
         }
         
-        this.supabase
+        this.supabaseClient
           .from('performance_metrics')
           .insert(performanceData)
           .catch(error => console.error('Failed to track performance:', error))
@@ -339,7 +339,7 @@ class ActivityTracker {
     
     // 機能使用統計テーブルも更新
     try {
-      await this.supabase.rpc('upsert_feature_usage', {
+      await this.supabaseClient.rpc('upsert_feature_usage', {
         p_user_id: this.currentUserId,
         p_feature_name: featureName,
         p_success: success,

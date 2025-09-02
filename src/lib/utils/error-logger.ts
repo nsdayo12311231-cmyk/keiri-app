@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase/client'
 
 interface ErrorLogData {
   errorMessage: string
@@ -22,7 +22,7 @@ interface BrowserInfo {
 }
 
 class ErrorLogger {
-  private supabase = createClient()
+  private supabaseClient = supabase
   
   private getBrowserInfo(): BrowserInfo {
     if (typeof window === 'undefined') {
@@ -64,7 +64,7 @@ class ErrorLogger {
         created_at: new Date().toISOString()
       }
       
-      const { error: supabaseError } = await this.supabase
+      const { error: supabaseError } = await this.supabaseClient
         .from('error_logs')
         .insert(logData)
       
@@ -104,7 +104,7 @@ class ErrorLogger {
       
       const logs = JSON.parse(localLogs)
       
-      const { error } = await this.supabase
+      const { error } = await this.supabaseClient
         .from('error_logs')
         .insert(logs)
       

@@ -350,26 +350,49 @@ export default function ReceiptsPage() {
       
       // 抽出されたデータがある場合、取引として保存（分類結果を活用）
       if (extractedData.amount && extractedData.amount > 0) {
+        // ユーザーのデフォルト現金口座を取得
+        const { data: cashAccount } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('account_name', '現金')
+          .single();
+
         const transactionData = {
           user_id: user.id,
-          account_id: '00000000-0000-0000-0000-000000000000', // デフォルト口座ID（後で修正予定）
+          account_id: cashAccount?.id || null, // 動的に取得したアカウントID
           amount: extractedData.amount,
           description: extractedData.description || 'レシートからの取引',
           transaction_date: extractedData.date || new Date().toISOString().split('T')[0],
+          category_id: classificationResult?.categoryId || null,
           is_business: classificationResult ? classificationResult.isBusiness : true,
-          transaction_type: 'expense'
+          confidence_score: classificationResult?.confidence || 0.5
         };
 
-        const { error: transactionError } = await supabase
+        const { data: transactionData_response, error: transactionError } = await supabase
           .from('transactions')
-          .insert(transactionData);
+          .insert(transactionData)
+          .select('id')
+          .single();
 
         if (transactionError) {
           console.error('Transaction save error:', transactionError);
           console.error('Transaction data that failed:', transactionData);
         } else {
-          // 処理成功時のロジック
+          // 取引作成成功時、レシートテーブルのtransaction_idを更新
+          const transactionId = transactionData_response?.id;
+          if (transactionId && receiptData) {
+            await supabase
+              .from('receipts')
+              .update({ 
+                transaction_id: transactionId,
+                is_processed: true,
+                processing_status: 'completed'
+              })
+              .eq('id', receiptData.id);
+          }
           console.log('Transaction saved successfully', {
+            transactionId,
             amount: extractedData.amount,
             categoryId: classificationResult?.categoryId,
             confidence: classificationResult?.confidence,
@@ -425,19 +448,43 @@ export default function ReceiptsPage() {
       // 各ファイルを順次処理
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        let fileName = '';
+        let imageBase64 = '';
         
         try {
           // ファイル名生成
           const fileExt = file.name.split('.').pop();
-          const fileName = `${user.id}/${Date.now()}_${i}.${fileExt}`;
+          fileName = `${user.id}/${Date.now()}_${i}.${fileExt}`;
 
           // Base64変換
-          const imageBase64 = await new Promise<string>((resolve, reject) => {
+          imageBase64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result as string);
             reader.onerror = reject;
             reader.readAsDataURL(file);
           });
+
+          // 処理開始時点でレシート記録を作成（失敗時の追跡のため）
+          const { data: initialReceipt, error: initialError } = await supabase
+            .from('receipts')
+            .insert({
+              user_id: user.id,
+              filename: fileName,
+              original_filename: file.name,
+              file_size: file.size,
+              ocr_text: '',
+              extracted_data: {},
+              is_processed: false,
+              processing_status: 'processing',
+              confidence_score: 0.0
+            })
+            .select()
+            .single();
+            
+          if (initialError) {
+            console.error('レシート記録作成エラー:', initialError);
+            throw new Error(`レシート記録作成に失敗: ${initialError.message}`);
+          }
 
           // OCR処理（サーバーサイドAPI経由、リトライ機能付き）
           let result;
@@ -552,6 +599,26 @@ export default function ReceiptsPage() {
             } else if (error.message.includes('quota') || error.message.includes('limit')) {
               errorMessage = 'API使用制限に達しました。しばらくしてからお試しください';
             }
+          }
+          
+          // エラー時も失敗記録をDBに保存（デバッグ・改善のため）
+          try {
+            await supabase
+              .from('receipts')
+              .insert({
+                user_id: user.id,
+                filename: fileName || `error_${Date.now()}_${i}`,
+                original_filename: file.name,
+                file_size: file.size,
+                ocr_text: '',
+                extracted_data: {},
+                is_processed: false,
+                processing_status: 'failed',
+                error_message: errorMessage,
+                confidence_score: 0.0
+              });
+          } catch (dbError) {
+            console.error('エラー記録の保存に失敗:', dbError);
           }
           
           results.push({

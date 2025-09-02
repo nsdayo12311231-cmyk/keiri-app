@@ -200,31 +200,20 @@ export default function ReceiptsPage() {
   };
 
   const fetchReceipts = async () => {
-    if (!user) {
-      console.log('fetchReceipts: ユーザーがログインしていません');
-      return;
-    }
+    if (!user) return;
 
     try {
       setLoadingReceipts(true);
-      console.log('fetchReceipts: レシートデータを取得中...', user.id);
-      
       const { data, error } = await supabase
         .from('receipts')
         .select('*')
         .eq('user_id', user.id)
         .order('upload_date', { ascending: false });
 
-      console.log('fetchReceipts結果:', { data, error, count: data?.length });
-      
       if (error) throw error;
       setReceipts(data || []);
-      
-      if (!data || data.length === 0) {
-        console.log('fetchReceipts: レシートデータが存在しません');
-      }
     } catch (error) {
-      console.error('fetchReceipts Error:', error);
+      console.error('Error fetching receipts:', error);
     } finally {
       setLoadingReceipts(false);
     }
@@ -357,12 +346,7 @@ export default function ReceiptsPage() {
         .select()
         .single();
 
-      if (receiptError) {
-        console.error('レシート保存エラー:', receiptError);
-        throw receiptError;
-      }
-      
-      console.log('レシート保存成功:', receiptData);
+      if (receiptError) throw receiptError;
       
       // 抽出されたデータがある場合、取引として保存（分類結果を活用）
       if (extractedData.amount && extractedData.amount > 0) {

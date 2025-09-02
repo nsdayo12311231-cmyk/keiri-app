@@ -5,8 +5,6 @@ import { createServerClient, createSimpleServerClient } from '@/lib/supabase/ser
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('CSV API開始 - Headers:', Object.fromEntries(request.headers.entries()));
-    
     // Supabaseクライアントを作成（フォールバック付き）
     let supabase;
     let user;
@@ -14,18 +12,15 @@ export async function POST(request: NextRequest) {
     
     try {
       supabase = await createServerClient();
-      console.log('通常のサーバークライアント作成成功');
       const authResult = await supabase.auth.getUser();
       user = authResult.data.user;
       authError = authResult.error;
-      console.log('認証結果:', { hasUser: !!user, error: authError?.message });
     } catch (serverError) {
       console.warn('サーバークライアント作成失敗、フォールバックを使用:', serverError);
       supabase = createSimpleServerClient();
       const authResult = await supabase.auth.getUser();
       user = authResult.data.user;
       authError = authResult.error;
-      console.log('フォールバック認証結果:', { hasUser: !!user, error: authError?.message });
     }
 
     if (authError || !user) {

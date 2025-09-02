@@ -24,8 +24,19 @@ export async function POST(request: NextRequest) {
     }
 
     if (authError || !user) {
+      console.error('CSV API認証エラー:', {
+        authError: authError?.message,
+        user: user ? '存在' : 'なし',
+        headers: Object.fromEntries(request.headers.entries())
+      });
       return NextResponse.json(
-        { error: '認証が必要です' },
+        { 
+          error: '認証が必要です',
+          debug: process.env.NODE_ENV === 'development' ? {
+            authError: authError?.message,
+            hasUser: !!user
+          } : undefined
+        },
         { status: 401 }
       );
     }

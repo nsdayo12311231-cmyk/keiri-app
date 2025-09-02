@@ -9,7 +9,12 @@ interface ActivityTrackerProviderProps {
 
 export function ActivityTrackerProvider({ children }: ActivityTrackerProviderProps) {
   useEffect(() => {
-    // アクティビティトラッカーを初期化
+    // 本番環境では一時的に無効化（パフォーマンス改善のため）
+    if (process.env.NODE_ENV === 'production') {
+      return
+    }
+    
+    // 開発環境のみでアクティビティトラッカーを初期化
     const tracker = getActivityTracker()
     
     // 未送信データの同期

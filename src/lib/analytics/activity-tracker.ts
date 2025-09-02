@@ -271,6 +271,11 @@ class ActivityTracker {
   }
   
   private async getIPAddress(): Promise<string | null> {
+    // 本番環境では IP 取得をスキップ（パフォーマンス改善）
+    if (process.env.NODE_ENV === 'production') {
+      return null
+    }
+    
     try {
       // IP取得は外部サービスを使用（プライバシー配慮）
       const response = await fetch('https://api.ipify.org?format=json')

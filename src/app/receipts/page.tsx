@@ -16,7 +16,7 @@ import { RealtimeProgress } from '@/components/receipts/realtime-progress';
 import { SidebarGuide } from '@/components/layout/sidebar-guide';
 import { Calculator, Camera, FileText, Calendar, Tag, Building2, User, Eye, Edit2, Check, X, Trash2, CheckSquare, Square, AlertTriangle, Search, Filter, SortAsc, SortDesc, Download, FileDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { ReceiptOCR } from '@/lib/ocr/vision-api';
+// import { ReceiptOCR } from '@/lib/ocr/vision-api'; // サーバーサイドAPI使用のため削除
 import { autoClassifyReceipt } from '@/lib/utils/receipt-classifier';
 import { classifyWithAI } from '@/lib/classification/huggingface-classifier';
 import { classifyWithOpenAI, setOpenAIApiKey } from '@/lib/classification/openai-classifier';
@@ -399,20 +399,7 @@ export default function ReceiptsPage() {
       setLastUploadTime(uploadStartTime);
       
 
-      // API設定
-      const geminiApiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-      const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_VISION_API_KEY;
-      const apiKey = geminiApiKey || googleApiKey;
-      
-      
-      if (!apiKey) {
-        console.error('No API key configured');
-        alert('APIキーが設定されていません');
-        return;
-      }
-
-      const useGemini = !!geminiApiKey;
-      const receiptOCR = new ReceiptOCR(apiKey, useGemini);
+      // サーバーサイドOCR処理に変更 - APIキーは不要
       
       const results: Array<{file: File, success: boolean, data?: any, error?: string, isDuplicate?: boolean, duplicateReceipt?: Receipt}> = [];
       let apiCallCount = 0;
@@ -454,7 +441,7 @@ export default function ReceiptsPage() {
             reader.readAsDataURL(file);
           });
 
-          // OCR処理（リトライ機能付き）
+          // OCR処理（サーバーサイドAPI経由、リトライ機能付き）
           let result;
           let retryCount = 0;
           
@@ -468,7 +455,25 @@ export default function ReceiptsPage() {
                 apiCallCount = 0;
               }
               
-              result = await receiptOCR.processReceipt(imageBase64);
+              // サーバーサイドOCR API呼び出し
+              const ocrResponse = await fetch('/api/ocr/receipt', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  imageBase64,
+                  useGemini: true // Geminiを優先使用
+                })
+              });
+              
+              if (!ocrResponse.ok) {
+                const errorData = await ocrResponse.json();
+                throw new Error(errorData.error || 'OCR processing failed');
+              }
+              
+              const ocrData = await ocrResponse.json();
+              result = ocrData.data;
               break; // 成功した場合はループを抜ける
               
             } catch (ocrError) {

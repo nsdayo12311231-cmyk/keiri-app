@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
+import ErrorBoundary from "@/components/ui/error-boundary";
+import { ErrorLoggerProvider } from "@/components/providers/error-logger-provider";
+import { ActivityTrackerProvider } from "@/components/providers/activity-tracker-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,9 +33,15 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background font-sans`}
       >
-        <ToastProvider>
-          {children}
-        </ToastProvider>
+        <ErrorLoggerProvider>
+          <ActivityTrackerProvider>
+            <ErrorBoundary>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </ErrorBoundary>
+          </ActivityTrackerProvider>
+        </ErrorLoggerProvider>
       </body>
     </html>
   );

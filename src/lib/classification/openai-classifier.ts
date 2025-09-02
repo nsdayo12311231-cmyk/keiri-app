@@ -205,15 +205,14 @@ let openaiClassifierInstance: OpenAIClassifier | null = null;
  */
 export function getOpenAIClassifier(): OpenAIClassifier {
   if (!openaiClassifierInstance) {
-    // 環境変数からAPIキーを取得
-    const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-    openaiClassifierInstance = new OpenAIClassifier(apiKey);
+    // フロントエンドでは直接APIキーを使わない
+    openaiClassifierInstance = new OpenAIClassifier();
   }
   return openaiClassifierInstance;
 }
 
 /**
- * 簡単なOpenAI分類実行関数
+ * サーバーサイドAPI経由でOpenAI分類実行
  */
 export async function classifyWithOpenAI(
   description: string,
@@ -221,8 +220,35 @@ export async function classifyWithOpenAI(
   merchantName?: string,
   ocrText?: string
 ): Promise<OpenAIClassificationResult | null> {
-  const classifier = getOpenAIClassifier();
-  return await classifier.classifyReceipt(description, amount, merchantName, ocrText);
+  try {
+    const response = await fetch('/api/classify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        description,
+        amount,
+        merchantName,
+        ocrText
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Classification API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Classification failed');
+    }
+
+    return result.data;
+  } catch (error) {
+    console.error('❌ API分類エラー:', error);
+    return null;
+  }
 }
 
 /**

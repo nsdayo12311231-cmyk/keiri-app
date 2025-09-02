@@ -66,6 +66,43 @@ function parseAmount(amountStr: string): number {
   return isNegative ? -numericValue : numericValue;
 }
 
+// CSV行をパースする関数（引用符対応）
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let i = 0;
+  
+  while (i < line.length) {
+    const char = line[i];
+    
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        // エスケープされた引用符
+        current += '"';
+        i += 2;
+      } else {
+        // 引用符の開始/終了
+        inQuotes = !inQuotes;
+        i++;
+      }
+    } else if (char === ',' && !inQuotes) {
+      // カンマで区切り
+      result.push(current.trim());
+      current = '';
+      i++;
+    } else {
+      current += char;
+      i++;
+    }
+  }
+  
+  // 最後の項目を追加
+  result.push(current.trim());
+  
+  return result;
+}
+
 // 楽天カード形式
 const rakutenCardFormat: CSVFormat = {
   name: '楽天カード',
@@ -191,14 +228,15 @@ export function parseCSV(csvContent: string): {
   format: string;
   errors: string[];
 } {
-  const lines = csvContent.split('\n').filter(line => line.trim());
-  if (lines.length < 2) {
-    return { transactions: [], format: 'unknown', errors: ['CSVファイルが空かヘッダーのみです'] };
-  }
+  try {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      return { transactions: [], format: 'unknown', errors: ['CSVファイルが空かヘッダーのみです'] };
+    }
 
-  // ヘッダー行を解析
-  const headerLine = lines[0];
-  const headers = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+    // ヘッダー行を解析（より堅牢なCSVパース）
+    const headerLine = lines[0];
+    const headers = parseCSVLine(headerLine);
 
   // 適切な形式を検出
   const detectedFormat = CSV_FORMATS.find(format => format.detector(headers));
@@ -213,30 +251,38 @@ export function parseCSV(csvContent: string): {
   const transactions: TransactionData[] = [];
   const errors: string[] = [];
 
-  // データ行を解析
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    // データ行を解析
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
 
-    try {
-      const row = line.split(',').map(cell => cell.trim().replace(/"/g, ''));
-      const transaction = detectedFormat.parser(row, headers);
-      
-      if (transaction && transaction.date && transaction.description) {
-        transactions.push(transaction);
-      } else if (transaction === null) {
-        errors.push(`${i + 1}行目: データが不正です`);
+      try {
+        const row = parseCSVLine(line);
+        const transaction = detectedFormat.parser(row, headers);
+        
+        if (transaction && transaction.date && transaction.description) {
+          transactions.push(transaction);
+        } else if (transaction === null) {
+          errors.push(`${i + 1}行目: データが不正です`);
+        }
+      } catch (error) {
+        errors.push(`${i + 1}行目: 解析エラー - ${error}`);
       }
-    } catch (error) {
-      errors.push(`${i + 1}行目: 解析エラー - ${error}`);
     }
-  }
 
-  return {
-    transactions,
-    format: detectedFormat.name,
-    errors
-  };
+    return {
+      transactions,
+      format: detectedFormat.name,
+      errors
+    };
+  } catch (error) {
+    console.error('CSV解析エラー:', error);
+    return { 
+      transactions: [], 
+      format: 'error', 
+      errors: [`CSV解析中にエラーが発生しました: ${error}`] 
+    };
+  }
 }
 
 // 重複チェック用の関数

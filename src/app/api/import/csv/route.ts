@@ -5,19 +5,8 @@ import { createServerClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
-    // Supabase認証チェック - Authorizationヘッダーまたはクッキーから認証
-    const authHeader = request.headers.get('authorization');
-    let supabase;
-    
-    if (authHeader?.startsWith('Bearer ')) {
-      // Authorizationヘッダーがある場合
-      const { createAuthenticatedServerClient } = await import('@/lib/supabase/server');
-      supabase = await createAuthenticatedServerClient(request);
-    } else {
-      // クッキー認証の場合
-      supabase = await createServerClient();
-    }
-    
+    // Supabaseクライアントを作成（クッキーベース認証）
+    const supabase = await createServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {

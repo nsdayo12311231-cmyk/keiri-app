@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,7 +34,6 @@ export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState('24h') // 24h, 7d, 30d
   const [autoRefresh, setAutoRefresh] = useState(true)
   
-  const supabase = createClient()
 
   useEffect(() => {
     // 開発環境では権限チェックを緩和

@@ -500,7 +500,10 @@ export default function ReceiptsPage() {
                 apiCallCount = 0;
               }
               
-              // サーバーサイドOCR API呼び出し
+              // サーバーサイドOCR API呼び出し（タイムアウト制御付き）
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒タイムアウト
+              
               const ocrResponse = await fetch('/api/ocr/receipt', {
                 method: 'POST',
                 headers: {
@@ -509,8 +512,11 @@ export default function ReceiptsPage() {
                 body: JSON.stringify({
                   imageBase64,
                   useGemini: true // Geminiを優先使用
-                })
+                }),
+                signal: controller.signal
               });
+              
+              clearTimeout(timeoutId);
               
               if (!ocrResponse.ok) {
                 const errorData = await ocrResponse.json();
@@ -678,8 +684,12 @@ export default function ReceiptsPage() {
       //   processedReceipts 
       // });
       
-      // レシート一覧を更新
-      await fetchReceipts();
+      // レシート一覧を更新（エラーの場合でも実行）
+      try {
+        await fetchReceipts();
+      } catch (fetchError) {
+        console.error('レシート一覧の更新エラー:', fetchError);
+      }
       
       // 新しいレシート判定用のタイムスタンプを更新（処理完了時点）
       setLastUploadTime(new Date());
@@ -690,9 +700,18 @@ export default function ReceiptsPage() {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       alert(`❌ 処理エラー: ${errorMessage}`);
     } finally {
+      // 確実にローディング状態を解除
       setProcessingUpload(false);
-      // setShowRealtimeProgress(false);
-      // setCurrentUploadFiles([]);
+      setShowRealtimeProgress(false);
+      setCurrentUploadFiles([]);
+      
+      // レシート一覧の更新（エラーの場合でも実行）
+      try {
+        await fetchReceipts();
+      } catch (fetchError) {
+        console.error('レシート一覧の更新エラー:', fetchError);
+        // フェッチ失敗でもローディングは解除する
+      }
     }
   };
 

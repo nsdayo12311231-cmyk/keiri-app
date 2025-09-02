@@ -10,17 +10,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Image data is required' }, { status: 400 });
     }
 
-    // Base64データサイズチェック（Vercel制限対応 - 圧縮機能導入により緩和）
+    // Base64データサイズチェック（300KB基準、十分な余裕を持たせて1MB制限）
     const base64Size = imageBase64.length;
-    const maxBase64Size = 4.5 * 1024 * 1024; // 4.5MB (Vercel limit)
+    const maxBase64Size = 1024 * 1024; // 1MB (300KB圧縮 + 余裕)
     console.log('受信した画像サイズ:', Math.round(base64Size / 1024), 'KB');
     
     if (base64Size > maxBase64Size) {
-      console.error('Image too large even after compression:', { size: base64Size, limit: maxBase64Size });
+      console.error('Image still too large after auto-compression:', { 
+        sizeKB: Math.round(base64Size / 1024), 
+        limitKB: Math.round(maxBase64Size / 1024) 
+      });
       return NextResponse.json({ 
-        error: `画像の自動圧縮後もサイズが大きすぎます。別の画像をお試しください。` 
+        error: `画像の自動圧縮で300KB以下にできませんでした。非常に複雑な画像の可能性があります。別の画像をお試しください。` 
       }, { status: 413 }); // 413 Payload Too Large
     }
+    
+    console.log('✅ 画像サイズ検証OK:', Math.round(base64Size / 1024), 'KB');
 
     // サーバーサイドからAPIキーを取得
     const geminiApiKey = process.env.GEMINI_API_KEY;

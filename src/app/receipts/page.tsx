@@ -33,9 +33,16 @@ const compressImageToBase64 = async (file: File): Promise<string> => {
       const originalWidth = img.width;
       const originalHeight = img.height;
       
-      // 最大サイズを設定（レシートの可読性を保つため）
-      const maxWidth = 1200;
-      const maxHeight = 1600;
+      // 段階的なサイズ制限（どんな大きな画像でも300KB以下に）
+      let maxWidth = 1600;
+      let maxHeight = 2000;
+      
+      // 非常に大きな画像の場合は初期サイズを小さく
+      if (originalWidth > 4000 || originalHeight > 4000 || file.size > 50 * 1024 * 1024) {
+        maxWidth = 1000;
+        maxHeight = 1200;
+        console.log('大きな画像検出、初期サイズを小さく設定');
+      }
       
       // アスペクト比を保持してリサイズ計算
       let { width, height } = calculateOptimalSize(originalWidth, originalHeight, maxWidth, maxHeight);
@@ -48,25 +55,33 @@ const compressImageToBase64 = async (file: File): Promise<string> => {
       ctx!.imageSmoothingQuality = 'high';
       ctx!.drawImage(img, 0, 0, width, height);
       
-      // 段階的に品質を下げて3MB以下にする
-      const tryCompress = (quality: number): void => {
+      // 段階的に品質を下げて300KB以下にする（確実に小さくする）
+      const tryCompress = (quality: number, maxSizeKB: number = 300): void => {
         const base64 = canvas.toDataURL('image/jpeg', quality);
-        const sizeKB = Math.round(base64.length * 0.75 / 1024); // Base64サイズ推定
+        const estimatedSizeKB = Math.round(base64.length * 0.75 / 1024);
         
-        console.log(`圧縮試行: 品質${Math.round(quality * 100)}%, サイズ: ${sizeKB}KB`);
+        console.log(`圧縮試行: 品質${Math.round(quality * 100)}%, 推定サイズ: ${estimatedSizeKB}KB`);
         
-        if (base64.length < 3 * 1024 * 1024 || quality < 0.3) {
-          // 3MB以下になったか、最低品質に達した
-          console.log(`✅ 圧縮完了: 元${Math.round(file.size/1024)}KB → ${sizeKB}KB`);
+        if (estimatedSizeKB <= maxSizeKB || quality <= 0.1) {
+          // 300KB以下になったか、最低品質に達した
+          console.log(`✅ 圧縮完了: 元${Math.round(file.size/1024)}KB → 約${estimatedSizeKB}KB`);
           resolve(base64);
+        } else if (estimatedSizeKB > maxSizeKB * 3) {
+          // まだ3倍以上大きい場合は、さらに画像サイズを縮小
+          console.log('画像をさらに縮小して再試行');
+          canvas.width = Math.round(canvas.width * 0.8);
+          canvas.height = Math.round(canvas.height * 0.8);
+          ctx!.clearRect(0, 0, canvas.width, canvas.height);
+          ctx!.drawImage(img, 0, 0, canvas.width, canvas.height);
+          tryCompress(0.8, maxSizeKB);
         } else {
-          // まだ大きいので品質を下げて再試行
-          tryCompress(quality - 0.1);
+          // 品質を下げて再試行
+          tryCompress(Math.max(quality - 0.15, 0.1), maxSizeKB);
         }
       };
       
-      // 最初は高品質から開始
-      tryCompress(0.9);
+      // 最初は中程度の品質から開始（確実に小さくするため）
+      tryCompress(0.7);
     };
     
     img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));

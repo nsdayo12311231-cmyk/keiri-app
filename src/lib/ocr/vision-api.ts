@@ -542,33 +542,29 @@ export class ReceiptOCR {
           contents: [{
             parts: [
               {
-                text: `この画像を分析して、含まれているレシートごとに情報を抽出してください。
-
-画像に複数のレシートが含まれている場合は、各レシートを個別に分析して配列形式で返してください：
+                text: `この画像のレシートを分析してください。必ず以下のJSON形式で回答してください：
 
 {
   "receipts": [
     {
-      "amount": 合計金額（数値のみ、例: 230）,
+      "amount": 合計金額（数値のみ），
       "description": "店舗名での購入",
-      "date": "YYYY-MM-DD形式の日付",
+      "date": "YYYY-MM-DD",
       "merchantName": "店舗名",
-      "category": "推測されるカテゴリ",
+      "category": "食費",
       "confidence": 0.9
     }
   ],
-  "totalCount": 検出されたレシートの数,
-  "ocrText": "抽出されたテキスト全文"
+  "totalCount": 1,
+  "ocrText": "読み取ったテキスト全文"
 }
 
-画像に1枚しかレシートがない場合も同様に配列形式で返してください。
-
-重要な注意点：
-- 各レシートの合計金額を正確に特定してください（税込み最終金額）
-- 商品の個別価格や税額、オーダー番号は無視してください
-- 日本語のレシートです
-- JSONのみを返してください（他のテキストは不要）
-- 複数のレシートがある場合は、それぞれを区別して分析してください`
+重要な指示：
+- 回答は必ずJSON形式のみ
+- 説明文や markdown記法は一切使用しない
+- 合計金額は税込みの最終価格を使用
+- 日付がレシートに記載されていない場合は今日の日付を使用
+- 日本語のレシートです`
               },
               {
                 inlineData: {
@@ -609,14 +605,22 @@ export class ReceiptOCR {
         console.error('Parse error:', parseError);
         
         // より柔軟なJSONクリーンアップを試行
-        jsonText = jsonText
-          .replace(/,\s*}/g, '}')  // 末尾カンマ除去
-          .replace(/,\s*]/g, ']')  // 配列末尾カンマ除去
-          .replace(/\n/g, ' ')     // 改行をスペースに変換
-          .replace(/\t/g, ' ')     // タブをスペースに変換
-          .replace(/\s+/g, ' ');   // 連続スペースを1つに
-        
-        parsedData = JSON.parse(jsonText);
+        try {
+          jsonText = jsonText
+            .replace(/,\s*}/g, '}')  // 末尾カンマ除去
+            .replace(/,\s*]/g, ']')  // 配列末尾カンマ除去
+            .replace(/\n/g, ' ')     // 改行をスペースに変換
+            .replace(/\t/g, ' ')     // タブをスペースに変換
+            .replace(/\s+/g, ' ');   // 連続スペースを1つに
+          
+          parsedData = JSON.parse(jsonText);
+        } catch (secondParseError) {
+          console.error('Second JSON parse also failed:', secondParseError);
+          
+          // JSONパース完全失敗時のフォールバック - Google Vision APIを使用
+          console.warn('Gemini JSON解析失敗、Google Vision APIにフォールバック');
+          throw new Error('Gemini JSON parse failed, falling back to Vision API');
+        }
       }
       
       // 複数レシート対応

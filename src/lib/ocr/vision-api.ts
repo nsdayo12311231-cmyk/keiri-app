@@ -588,11 +588,17 @@ export class ReceiptOCR {
         throw new Error('No response from Gemini API');
       }
 
-      console.log('Gemini response:', responseText);
+      console.log('=== Gemini API Debug Info ===');
+      console.log('Raw Gemini response length:', responseText.length);
+      console.log('Raw Gemini response (first 1000 chars):', responseText.substring(0, 1000));
+      console.log('Response contains code blocks:', responseText.includes('```'));
       
       // JSONを抽出（マークダウンのコードブロックを除去）
       const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, responseText];
       let jsonText = jsonMatch[1].trim();
+      
+      console.log('Extracted JSON text length:', jsonText.length);
+      console.log('Extracted JSON text (first 500 chars):', jsonText.substring(0, 500));
       
       // 制御文字を除去（JSONパースエラーを防ぐ）
       jsonText = jsonText.replace(/[\x00-\x1F\x7F]/g, '');
@@ -619,6 +625,7 @@ export class ReceiptOCR {
           
           // JSONパース完全失敗時のフォールバック - Google Vision APIを使用
           console.warn('Gemini JSON解析失敗、Google Vision APIにフォールバック');
+          console.warn('Failed JSON text:', jsonText);
           throw new Error('Gemini JSON parse failed, falling back to Vision API');
         }
       }

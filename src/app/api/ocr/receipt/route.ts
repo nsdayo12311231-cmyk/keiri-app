@@ -14,15 +14,24 @@ export async function POST(request: NextRequest) {
     const geminiApiKey = process.env.GEMINI_API_KEY;
     const googleApiKey = process.env.GOOGLE_VISION_API_KEY;
     
+    console.log('=== OCR API Debug ===');
+    console.log('Gemini API Key exists:', !!geminiApiKey);
+    console.log('Google Vision API Key exists:', !!googleApiKey);
+    console.log('useGemini requested:', useGemini);
+    
     let apiKey: string;
     let shouldUseGemini = useGemini;
     
-    if (useGemini && geminiApiKey) {
-      apiKey = geminiApiKey;
-    } else if (googleApiKey) {
+    // 暫定的にGoogle Vision APIを優先使用（Gemini API問題回避のため）
+    if (googleApiKey) {
       apiKey = googleApiKey;
       shouldUseGemini = false;
+      console.log('Using Google Vision API (priority fallback)');
+    } else if (useGemini && geminiApiKey) {
+      apiKey = geminiApiKey;
+      console.log('Using Gemini API');
     } else {
+      console.error('No API keys available');
       return NextResponse.json({ 
         error: 'OCR API keys not configured on server' 
       }, { status: 500 });

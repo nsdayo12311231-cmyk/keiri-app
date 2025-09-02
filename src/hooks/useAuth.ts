@@ -28,6 +28,11 @@ export function useAuth() {
         if (event === 'SIGNED_UP' && session?.user) {
           await createUserProfile(session.user);
         }
+        
+        // サインイン時もプロファイルが存在しない場合は作成
+        if (event === 'SIGNED_IN' && session?.user) {
+          await ensureUserProfile(session.user);
+        }
       }
     );
 
@@ -52,6 +57,30 @@ export function useAuth() {
       }
     } catch (error) {
       console.error('Error creating user profile:', error);
+    }
+  };
+
+  // プロファイルの存在確認と作成
+  const ensureUserProfile = async (user: User) => {
+    try {
+      // まずプロファイルが既に存在するかチェック
+      const { data: existingProfile, error: checkError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (checkError && checkError.code === 'PGRST116') {
+        // プロファイルが存在しない場合は作成
+        console.log('プロファイルが存在しません。作成中...', user.email);
+        await createUserProfile(user);
+      } else if (checkError) {
+        console.error('プロファイル確認エラー:', checkError);
+      } else {
+        console.log('プロファイル既存:', user.email);
+      }
+    } catch (error) {
+      console.error('プロファイル確認処理エラー:', error);
     }
   };
 

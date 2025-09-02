@@ -3,7 +3,7 @@ import { parsePDF } from '@/lib/utils/pdf-parser';
 import { parsePDFv2 } from '@/lib/utils/pdf-parser-v2';
 import { extractTransactionsFromImagePDF, postProcessOCRTransactions } from '@/lib/utils/pdf-ocr';
 import { classifyTransactions } from '@/lib/utils/category-classifier';
-import { createServerClient } from '@/lib/supabase/server';
+import { createServerClient, createSimpleServerClient } from '@/lib/supabase/server';
 
 // 改善されたPDF処理関数
 async function parsePDFImproved(pdfBuffer: Buffer) {
@@ -90,8 +90,13 @@ export async function POST(request: NextRequest) {
       supabase = await createAuthenticatedServerClient(request);
     } else {
       console.log('PDF API - クッキー認証を使用');
-      // クッキー認証の場合
-      supabase = await createServerClient();
+      // クッキー認証の場合（フォールバック付き）
+      try {
+        supabase = await createServerClient();
+      } catch (serverError) {
+        console.warn('サーバークライアント作成失敗、フォールバックを使用:', serverError);
+        supabase = createSimpleServerClient();
+      }
     }
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();

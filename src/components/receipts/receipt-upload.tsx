@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Camera, Upload, FileImage, X, Loader2, Check } from 'lucide-react';
 import { EnhancedPreview } from './enhanced-preview';
 import { PhotographyHelp } from './photography-help';
-import { trackFeatureUse } from '@/lib/analytics/activity-tracker';
+// import { trackFeatureUse } from '@/lib/analytics/activity-tracker';
 
 interface ReceiptUploadProps {
   onUpload: (files: File[]) => Promise<void>;

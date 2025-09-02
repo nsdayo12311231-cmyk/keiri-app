@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseCSV, deduplicateTransactions } from '@/lib/utils/csv-parser';
 import { classifyTransactions } from '@/lib/utils/category-classifier';
-import { createServerClient } from '@/lib/supabase/server';
+import { createServerClient, createSimpleServerClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
-    // Supabaseクライアントを作成（クッキーベース認証）
-    const supabase = await createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Supabaseクライアントを作成（フォールバック付き）
+    let supabase;
+    let user;
+    let authError;
+    
+    try {
+      supabase = await createServerClient();
+      const authResult = await supabase.auth.getUser();
+      user = authResult.data.user;
+      authError = authResult.error;
+    } catch (serverError) {
+      console.warn('サーバークライアント作成失敗、フォールバックを使用:', serverError);
+      supabase = createSimpleServerClient();
+      const authResult = await supabase.auth.getUser();
+      user = authResult.data.user;
+      authError = authResult.error;
+    }
 
     if (authError || !user) {
       return NextResponse.json(

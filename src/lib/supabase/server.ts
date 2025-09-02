@@ -1,5 +1,6 @@
 import { createServerClient as createSupabaseServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies, headers } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/types/database.types';
 
 export async function createServerClient() {
@@ -38,8 +39,16 @@ export async function createServerClient() {
 
 // APIルート用の認証付きクライアント作成
 export async function createAuthenticatedServerClient(request?: Request) {
-  const headersList = request ? new Headers(request.headers) : await headers();
-  const cookieStore = await cookies();
+  let headersList: Headers;
+  let cookieStore: Awaited<ReturnType<typeof cookies>>;
+  
+  try {
+    headersList = request ? new Headers(request.headers) : await headers();
+    cookieStore = await cookies();
+  } catch (error) {
+    console.error('Headers/Cookies取得エラー:', error);
+    throw new Error('認証コンテキストの取得に失敗しました');
+  }
   
   // Authorizationヘッダーからトークンを取得
   const authHeader = headersList.get('authorization');
@@ -76,5 +85,13 @@ export async function createAuthenticatedServerClient(request?: Request) {
         },
       },
     },
+  );
+}
+
+// フォールバック用のシンプルなクライアント（APIルート専用）
+export function createSimpleServerClient() {
+  return createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }

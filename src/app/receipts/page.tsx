@@ -346,12 +346,15 @@ export default function ReceiptsPage() {
         .select()
         .single();
 
-      if (receiptError) throw receiptError;
+      if (receiptError) {
+        console.error('レシート保存エラー:', receiptError);
+        throw receiptError;
+      }
       
+      console.log('レシート保存成功:', receiptData);
       
       // 抽出されたデータがある場合、取引として保存（分類結果を活用）
-      // 一時的に無効化してレシート保存のみテスト
-      if (false && extractedData.amount && extractedData.amount > 0) {
+      if (extractedData.amount && extractedData.amount > 0) {
         const transactionData = {
           user_id: user.id,
           account_id: '00000000-0000-0000-0000-000000000000', // デフォルト口座ID（後で修正予定）

@@ -10,6 +10,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Image data is required' }, { status: 400 });
     }
 
+    // Base64データサイズチェック（Vercel制限対応）
+    const base64Size = imageBase64.length;
+    const maxBase64Size = 4 * 1024 * 1024; // 4MB (Vercel limit)
+    if (base64Size > maxBase64Size) {
+      console.error('Image too large:', { size: base64Size, limit: maxBase64Size });
+      return NextResponse.json({ 
+        error: `画像サイズが大きすぎます (${Math.round(base64Size / 1024 / 1024 * 10) / 10}MB)。3MB以下の画像をお試しください。` 
+      }, { status: 413 }); // 413 Payload Too Large
+    }
+
     // サーバーサイドからAPIキーを取得
     const geminiApiKey = process.env.GEMINI_API_KEY;
     const googleApiKey = process.env.GOOGLE_VISION_API_KEY;

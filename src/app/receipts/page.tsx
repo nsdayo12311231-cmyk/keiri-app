@@ -480,6 +480,12 @@ export default function ReceiptsPage() {
           const fileExt = file.name.split('.').pop();
           fileName = `${user.id}/${Date.now()}_${i}.${fileExt}`;
 
+          // ファイルサイズチェック（3MB制限）
+          const maxSize = 3 * 1024 * 1024; // 3MB
+          if (file.size > maxSize) {
+            throw new Error(`ファイルサイズが大きすぎます。${Math.round(file.size / 1024 / 1024 * 10) / 10}MB > 3MB制限。より小さな画像をお試しください。`);
+          }
+
           // Base64変換
           imageBase64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();

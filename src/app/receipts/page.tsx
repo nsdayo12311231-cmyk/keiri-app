@@ -900,7 +900,8 @@ export default function ReceiptsPage() {
           let result;
           let retryCount = 0;
           
-          while (retryCount <= maxRetries) {
+          // 🔧 修正：より安全なリトライループ（無限ループ防止）
+          while (retryCount < maxRetries + 1) { // < にして明確化
             try {
               apiCallCount++;
               
@@ -909,6 +910,8 @@ export default function ReceiptsPage() {
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 apiCallCount = 0;
               }
+              
+              console.log(`🚀 OCR処理開始: 試行 ${retryCount + 1}/${maxRetries + 1}`);
               
               // サーバーサイドOCR API呼び出し（タイムアウト制御付き）
               const controller = new AbortController();
@@ -960,13 +963,16 @@ export default function ReceiptsPage() {
               
             } catch (ocrError) {
               retryCount++;
-              console.error(`OCR処理エラー (試行 ${retryCount}/${maxRetries + 1}):`, ocrError);
+              console.error(`❌ OCR処理エラー (試行 ${retryCount}/${maxRetries + 1}):`, ocrError);
               
-              if (retryCount <= maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, retryDelay * retryCount));
-              } else {
+              // 🔧 修正：最大リトライ回数に達した場合は即座にエラーを投げる
+              if (retryCount >= maxRetries + 1) {
                 throw new Error(`OCR処理に${maxRetries + 1}回失敗しました: ${ocrError instanceof Error ? ocrError.message : 'Unknown error'}`);
               }
+              
+              // リトライ待機（指数バックオフ）
+              console.log(`⏰ ${retryDelay * retryCount}ms 待機後にリトライします...`);
+              await new Promise(resolve => setTimeout(resolve, retryDelay * retryCount));
             }
           }
           
@@ -1130,18 +1136,21 @@ export default function ReceiptsPage() {
       console.error('Batch processing error:', error);
       handleError(error, 'upload', 'バッチ処理中');
     } finally {
-      // 確実にローディング状態を解除
+      // 🔧 修正：finally内の非同期処理を除去（UI凍結の根本原因）
+      // 確実にローディング状態を解除（同期的に）
       setProcessingUpload(false);
       setShowRealtimeProgress(false);
       setCurrentUploadFiles([]);
-      
-      // レシート一覧の更新（エラーの場合でも実行）
-      try {
-        await fetchReceipts();
-      } catch (fetchError) {
-        console.error('レシート一覧の更新エラー:', fetchError);
-        // フェッチ失敗でもローディングは解除する
-      }
+    }
+    
+    // 🔧 修正：レシート一覧の更新を finally の外に移動
+    // エラーが発生していてもレシート状態を更新（非同期処理）
+    try {
+      await fetchReceipts();
+    } catch (fetchError) {
+      console.error('レシート一覧の更新エラー:', fetchError);
+      // フェッチ失敗時もエラーハンドリングに委ねる
+      handleError(fetchError, 'network', 'レシート更新');
     }
   };
 

@@ -542,29 +542,34 @@ export class ReceiptOCR {
           contents: [{
             parts: [
               {
-                text: `この画像のレシートを分析してください。必ず以下のJSON形式で回答してください：
+                text: `🧾 レシートOCR処理：この画像から日本語レシートの情報を抽出してください。
 
+必須要件：
+1. JSONのみ回答（説明不要）
+2. 合計金額を正確に読み取る
+3. 全テキストを保持する
+
+出力形式：
 {
-  "receipts": [
-    {
-      "amount": 合計金額（数値のみ），
-      "description": "店舗名での購入",
-      "date": "YYYY-MM-DD",
-      "merchantName": "店舗名",
-      "category": "食費",
-      "confidence": 0.9
-    }
-  ],
+  "receipts": [{
+    "amount": 数値,
+    "description": "購入内容",
+    "date": "YYYY-MM-DD",
+    "merchantName": "店舗名",
+    "category": "食費",
+    "confidence": 0.85
+  }],
   "totalCount": 1,
-  "ocrText": "読み取ったテキスト全文"
+  "ocrText": "画像内の全テキスト（改行含む）"
 }
 
-重要な指示：
-- 回答は必ずJSON形式のみ
-- 説明文や markdown記法は一切使用しない
-- 合計金額は税込みの最終価格を使用
-- 日付がレシートに記載されていない場合は今日の日付を使用
-- 日本語のレシートです`
+OCR精度向上のポイント：
+- 数字は慎重に読み取る（0/O, 1/I/l, 5/S の区別）
+- 税込み総額を優先
+- 不明項目は null を使用
+- confidenceは読み取り確実性（0-1）
+
+日本語レシート専用処理を開始します。`
               },
               {
                 inlineData: {
@@ -588,45 +593,114 @@ export class ReceiptOCR {
         throw new Error('No response from Gemini API');
       }
 
-      console.log('=== Gemini API Debug Info ===');
-      console.log('Raw Gemini response length:', responseText.length);
-      console.log('Raw Gemini response (first 1000 chars):', responseText.substring(0, 1000));
-      console.log('Response contains code blocks:', responseText.includes('```'));
+      console.log('🤖 === Gemini OCR 詳細分析 ===');
+      console.log('📊 レスポンス統計:', {
+        length: responseText.length,
+        hasCodeBlocks: responseText.includes('```'),
+        hasJSON: responseText.includes('{') && responseText.includes('}'),
+        confidence: 'analyzing...'
+      });
+      console.log('📝 レスポンス冒頭 (1000文字):', responseText.substring(0, 1000));
       
-      // JSONを抽出（マークダウンのコードブロックを除去）
-      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, responseText];
-      let jsonText = jsonMatch[1].trim();
+      // 🔍 高度JSON抽出: 複数パターンに対応
+      let jsonText = '';
       
-      console.log('Extracted JSON text length:', jsonText.length);
-      console.log('Extracted JSON text (first 500 chars):', jsonText.substring(0, 500));
+      // パターン1: マークダウンコードブロック
+      const codeBlockMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1].trim();
+        console.log('✅ コードブロック形式検出');
+      }
       
-      // 制御文字を除去（JSONパースエラーを防ぐ）
-      jsonText = jsonText.replace(/[\x00-\x1F\x7F]/g, '');
+      // パターン2: 単純JSON（バックアップ）
+      if (!jsonText) {
+        const simpleJsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (simpleJsonMatch) {
+          jsonText = simpleJsonMatch[0].trim();
+          console.log('✅ 単純JSON形式検出');
+        } else {
+          jsonText = responseText.trim();
+          console.log('⚠️ JSON構造未検出、全文解析を試行');
+        }
+      }
+      
+      console.log('🎯 抽出JSON統計:', {
+        length: jsonText.length,
+        startsWithBrace: jsonText.startsWith('{'),
+        endsWithBrace: jsonText.endsWith('}'),
+        preview: jsonText.substring(0, 300) + (jsonText.length > 300 ? '...' : '')
+      });
+      
+      // 🧹 JSON前処理: OCR品質向上のための高度クリーンアップ
+      jsonText = jsonText
+        // 基本クリーンアップ
+        .replace(/[\x00-\x1F\x7F]/g, '')  // 制御文字除去
+        .replace(/\r\n/g, '\n')          // 改行正規化
+        .replace(/\r/g, '\n')
+        // OCR誤認識文字の修正
+        .replace(/"(\d+)"/g, '$1')        // 数値文字列を数値に
+        .replace(/：/g, ':')              // 全角コロンを半角に
+        .replace(/，/g, ',')              // 全角カンマを半角に
+        .trim();
       
       let parsedData;
+      let parseAttempt = 1;
+      
+      // 🔄 段階的JSON解析: 3段階でチャレンジ
       try {
+        console.log(`🚀 JSON解析試行 ${parseAttempt}: 基本解析`);
         parsedData = JSON.parse(jsonText);
-      } catch (parseError) {
-        console.error('JSON parse error, raw text:', jsonText.substring(0, 500));
-        console.error('Parse error:', parseError);
+        console.log('✨ JSON解析成功: 基本解析で完了');
         
-        // より柔軟なJSONクリーンアップを試行
+      } catch (parseError) {
+        console.warn(`❌ JSON解析失敗 ${parseAttempt}:`, (parseError as Error).message);
+        parseAttempt++;
+        
         try {
-          jsonText = jsonText
-            .replace(/,\s*}/g, '}')  // 末尾カンマ除去
-            .replace(/,\s*]/g, ']')  // 配列末尾カンマ除去
-            .replace(/\n/g, ' ')     // 改行をスペースに変換
-            .replace(/\t/g, ' ')     // タブをスペースに変換
-            .replace(/\s+/g, ' ');   // 連続スペースを1つに
+          console.log(`🚀 JSON解析試行 ${parseAttempt}: 高度クリーンアップ`);
+          const cleanedJson = jsonText
+            .replace(/,\s*}/g, '}')       // 末尾カンマ除去
+            .replace(/,\s*]/g, ']')       // 配列末尾カンマ除去
+            .replace(/\n/g, ' ')          // 改行をスペースに
+            .replace(/\t/g, ' ')          // タブをスペースに
+            .replace(/\s+/g, ' ')         // 連続スペースを単一化
+            .replace(/'\s*:\s*'/g, '":"') // シングルクォートをダブルクォートに
+            .replace(/(\w+):/g, '"$1":'); // プロパティ名をクォート
           
-          parsedData = JSON.parse(jsonText);
+          parsedData = JSON.parse(cleanedJson);
+          console.log('✨ JSON解析成功: 高度クリーンアップで解決');
+          
         } catch (secondParseError) {
-          console.error('Second JSON parse also failed:', secondParseError);
+          console.error(`❌ JSON解析失敗 ${parseAttempt}:`, (secondParseError as Error).message);
+          parseAttempt++;
           
-          // JSONパース完全失敗時のフォールバック - Google Vision APIを使用
-          console.warn('Gemini JSON解析失敗、Google Vision APIにフォールバック');
-          console.warn('Failed JSON text:', jsonText);
-          throw new Error('Gemini JSON parse failed, falling back to Vision API');
+          try {
+            console.log(`🚀 JSON解析試行 ${parseAttempt}: 最終フォールバック`);
+            // 最終手段: 正規表現で主要データを抽出
+            const emergencyExtraction = this.extractDataWithRegex(responseText);
+            
+            if (emergencyExtraction) {
+              parsedData = emergencyExtraction;
+              console.log('✨ 緊急データ抽出成功: 正規表現フォールバック');
+            } else {
+              throw new Error('All JSON parse methods failed');
+            }
+            
+          } catch (finalError) {
+            console.error(`❌❌❌ 全JSON解析手法失敗 ❌❌❌`);
+            console.error('🔍 解析失敗詳細:', {
+              originalLength: responseText.length,
+              jsonTextLength: jsonText.length,
+              firstJsonChar: jsonText[0],
+              lastJsonChar: jsonText[jsonText.length - 1],
+              sampleText: jsonText.substring(0, 200),
+              error: finalError
+            });
+            
+            // Vision APIフォールバック
+            console.warn('🔄 Gemini完全失敗、Vision APIフォールバック実行');
+            throw new Error('Gemini JSON parse completely failed, falling back to Vision API');
+          }
         }
       }
       
@@ -861,6 +935,142 @@ export class ReceiptOCR {
     }
     
     return undefined;
+  }
+
+  // 🚨 緊急データ抽出: JSON解析完全失敗時の正規表現フォールバック
+  private extractDataWithRegex(text: string): any {
+    try {
+      console.log('🆘 緊急データ抽出開始: 正規表現による直接解析');
+      
+      // 🔍 基本パターン抽出
+      const amountPatterns = [
+        /合計[:\s]*([0-9,]+)/i,
+        /総計[:\s]*([0-9,]+)/i,
+        /計[:\s]*([0-9,]+)/i,
+        /[合総]額[:\s]*([0-9,]+)/i,
+        /(\d+)[,\s]*円/i,
+        /¥[\s]*([0-9,]+)/i,
+        /￥[\s]*([0-9,]+)/i,
+        /([0-9,]+)\s*[円¥￥]/i
+      ];
+      
+      const merchantPatterns = [
+        /店舗[名称号]?[:\s]*([^\n\r]+)/i,
+        /(セブン-?イレブン|ローソン|ファミリーマート|ファミマ)/i,
+        /(イオン|AEON|イトーヨーカドー|西友|SEIYU)/i,
+        /(マクドナルド|McDonald|吉野家|すき家|松屋)/i,
+        /([^\n\r]{2,20})\s*(店|ショップ|Shop|SHOP)/i
+      ];
+      
+      const datePatterns = [
+        /(\d{4})[/-](\d{1,2})[/-](\d{1,2})/,
+        /(\d{2})[/-](\d{1,2})[/-](\d{1,2})/,
+        /(令和|平成|R|H)[\s]*(\d+)[年\s]*(\d+)[月\s]*(\d+)/
+      ];
+      
+      // 💰 金額抽出
+      let amount: number | null = null;
+      for (const pattern of amountPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          const numStr = match[1].replace(/,/g, '');
+          const num = parseInt(numStr);
+          if (!isNaN(num) && num > 0 && num < 100000) { // 妥当な範囲
+            amount = num;
+            console.log(`💰 金額検出: ${amount}円 (パターン: ${pattern.source})`);
+            break;
+          }
+        }
+      }
+      
+      // 🏪 店舗名抽出
+      let merchantName: string | null = null;
+      for (const pattern of merchantPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          merchantName = match[1]?.trim() || match[0]?.trim();
+          if (merchantName && merchantName.length > 1 && merchantName.length < 50) {
+            console.log(`🏪 店舗名検出: ${merchantName} (パターン: ${pattern.source})`);
+            break;
+          }
+        }
+      }
+      
+      // 📅 日付抽出
+      let date: string | null = null;
+      for (const pattern of datePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          if (match[1]?.length === 4) { // YYYY-MM-DD
+            date = `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+          } else if (match[1]?.length === 2) { // YY-MM-DD
+            const year = parseInt(match[1]) > 50 ? `19${match[1]}` : `20${match[1]}`;
+            date = `${year}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+          } else if (match[2] && match[3] && match[4]) { // 令和/平成
+            const baseYear = match[1].includes('令和') || match[1].includes('R') ? 2018 : 1988;
+            const year = baseYear + parseInt(match[2]);
+            date = `${year}-${match[3].padStart(2, '0')}-${match[4].padStart(2, '0')}`;
+          }
+          
+          if (date) {
+            console.log(`📅 日付検出: ${date} (パターン: ${pattern.source})`);
+            break;
+          }
+        }
+      }
+      
+      // 🏷️ カテゴリー推定
+      let category = '雑費'; // デフォルト
+      const foodKeywords = ['コンビニ', 'スーパー', 'レストラン', '食品', '飲食', 'セブン', 'ローソン', 'ファミ', 'マック'];
+      if (foodKeywords.some(keyword => text.includes(keyword))) {
+        category = '食費';
+      }
+      
+      // ⚖️ 抽出結果評価
+      const confidence = this.calculateEmergencyConfidence(amount, merchantName, date);
+      
+      // 🔄 結果生成
+      if (amount || merchantName) {
+        const result = {
+          receipts: [{
+            amount: amount || 0,
+            description: merchantName ? `${merchantName}での購入` : '購入',
+            date: date || new Date().toISOString().split('T')[0],
+            merchantName: merchantName || '不明',
+            category: category,
+            confidence: confidence
+          }],
+          totalCount: 1,
+          ocrText: text.substring(0, 2000) // 長すぎる場合は切り詰め
+        };
+        
+        console.log('✅ 緊急抽出成功:', {
+          amount: result.receipts[0].amount,
+          merchant: result.receipts[0].merchantName,
+          confidence: confidence
+        });
+        
+        return result;
+      }
+      
+      console.warn('❌ 緊急抽出失敗: 有効なデータが見つかりませんでした');
+      return null;
+      
+    } catch (error) {
+      console.error('❌ 緊急抽出エラー:', error);
+      return null;
+    }
+  }
+  
+  // ⚖️ 緊急抽出の信頼度計算
+  private calculateEmergencyConfidence(amount: number | null, merchant: string | null, date: string | null): number {
+    let confidence = 0.3; // 基本信頼度（正規表現抽出のため低めに設定）
+    
+    if (amount && amount > 0) confidence += 0.3;      // 金額あり
+    if (merchant && merchant.length > 2) confidence += 0.2;  // 店舗名あり
+    if (date) confidence += 0.1;                      // 日付あり
+    
+    return Math.min(confidence, 0.9); // 最大0.9（緊急抽出なので）
   }
 
   async processReceipt(imageBase64: string): Promise<{ ocrText: string; extractedData: ExtractedData }> {

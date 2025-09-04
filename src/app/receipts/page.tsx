@@ -93,16 +93,24 @@ const compressImageUnified = (file: File, env: any): Promise<string> => {
         const originalWidth = img.width;
         const originalHeight = img.height;
         
-        // 統一品質設定（環境差をなくす）
-        let maxWidth = 1200;
-        let maxHeight = 1600;
+        // 📸 OCR品質優先設定（文字認識精度向上）
+        let maxWidth = 1600;  // OCR用に解像度向上
+        let maxHeight = 2000;
         
-        // 大型画像の場合のみサイズ調整
-        if (originalWidth > 4000 || originalHeight > 4000 || file.size > 30 * 1024 * 1024) {
-          maxWidth = 1000;
-          maxHeight = 1300;
-          console.log('📷 大型画像検出、最適サイズに調整');
+        // 大型画像の場合でもOCR品質維持
+        if (originalWidth > 5000 || originalHeight > 5000 || file.size > 50 * 1024 * 1024) {
+          maxWidth = 1400;  // より高解像度を維持
+          maxHeight = 1800;
+          console.log('📷 超大型画像検出、OCR最適サイズに調整');
         }
+        
+        // OCR品質診断
+        const isOCROptimal = originalWidth >= 800 && originalHeight >= 600;
+        console.log('🔍 OCR品質分析:', {
+          original: `${originalWidth}x${originalHeight}`,
+          optimal: isOCROptimal,
+          recommendation: isOCROptimal ? '高精度OCR期待' : '低解像度: OCR精度に影響可能性'
+        });
         
         const { width, height } = calculateOptimalSize(originalWidth, originalHeight, maxWidth, maxHeight);
         
@@ -114,31 +122,45 @@ const compressImageUnified = (file: File, env: any): Promise<string> => {
         ctx!.imageSmoothingQuality = 'high';
         ctx!.drawImage(img, 0, 0, width, height);
         
-        // 統一品質での段階的圧縮
-        const tryUnifiedCompress = (quality: number): void => {
+        // 🎯 OCR品質優先の段階的圧縮（文字認識精度重視）
+        const tryOCROptimizedCompress = (quality: number): void => {
           const base64 = canvas.toDataURL('image/jpeg', quality);
           const estimatedSizeKB = Math.round(base64.length * 0.75 / 1024);
           
-          console.log(`🔄 圧縮試行: 品質${Math.round(quality * 100)}%, サイズ: ${estimatedSizeKB}KB (環境: ${env.isWindows ? 'Windows' : env.isMac ? 'macOS' : 'Other'})`);
+          // OCR品質評価
+          const ocrQualityLevel = quality >= 0.8 ? '高品質🏆' : quality >= 0.65 ? '中品質📊' : '低品質⚠️';
           
-          if (estimatedSizeKB <= 300 || quality <= 0.3) {
-            console.log(`✅ 圧縮完了: ${Math.round(file.size/1024)}KB → ${estimatedSizeKB}KB`);
+          console.log(`🔄 OCR最適化圧縮: 品質${Math.round(quality * 100)}% (${ocrQualityLevel}), サイズ: ${estimatedSizeKB}KB`);
+          
+          // OCR品質優先: 800KB以下が目標（300KB→800KB変更）
+          if (estimatedSizeKB <= 800 || quality <= 0.5) {
+            console.log(`✅ OCR最適圧縮完了: ${Math.round(file.size/1024)}KB → ${estimatedSizeKB}KB (品質: ${ocrQualityLevel})`);
+            
+            // OCR品質アドバイス
+            if (estimatedSizeKB < 200) {
+              console.warn('⚠️ ファイルサイズが小さすぎます。OCR精度が低下する可能性があります。');
+            } else if (estimatedSizeKB >= 500) {
+              console.log('🎉 OCR最適サイズ達成！高精度処理が期待できます。');
+            }
+            
             resolve(base64);
-          } else if (estimatedSizeKB > 800) {
-            // サイズを縮小して再試行
-            canvas.width = Math.round(canvas.width * 0.8);
-            canvas.height = Math.round(canvas.height * 0.8);
+          } else if (estimatedSizeKB > 1500) {
+            // 1.5MB超の場合のみサイズ縮小（従来より緩和）
+            canvas.width = Math.round(canvas.width * 0.85);  // 0.8→0.85に緩和
+            canvas.height = Math.round(canvas.height * 0.85);
             ctx!.clearRect(0, 0, canvas.width, canvas.height);
+            ctx!.imageSmoothingEnabled = true;
+            ctx!.imageSmoothingQuality = 'high';
             ctx!.drawImage(img, 0, 0, canvas.width, canvas.height);
-            tryUnifiedCompress(0.7);
+            tryOCROptimizedCompress(0.75);  // より高い品質から再開
           } else {
-            // 品質を下げて再試行
-            tryUnifiedCompress(Math.max(quality - 0.15, 0.3));
+            // 品質低下を抑制（0.15→0.1に変更）
+            tryOCROptimizedCompress(Math.max(quality - 0.1, 0.5));  // 最低品質を0.3→0.5に向上
           }
         };
         
-        // 統一品質から開始
-        tryUnifiedCompress(0.8);
+        // OCR最適化品質から開始（0.8→0.85に向上）
+        tryOCROptimizedCompress(0.85);
         
       } catch (error) {
         clearTimeout(timeout);
@@ -211,6 +233,32 @@ export default function ReceiptsPage() {
   const [filterDateRange, setFilterDateRange] = useState<{start: string, end: string}>({start: '', end: ''});
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'merchant' | 'upload'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  // 🚨 エラーハンドリング強化: ユーザーフレンドリーな通知システム
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+    timestamp: Date;
+    isVisible: boolean;
+  }>>([]);
+  
+  const [errorState, setErrorState] = useState<{
+    hasError: boolean;
+    errorType: 'upload' | 'ocr' | 'network' | 'permission' | 'general' | null;
+    errorMessage: string;
+    errorDetails?: any;
+    retryCount: number;
+    showRetryButton: boolean;
+  }>({
+    hasError: false,
+    errorType: null,
+    errorMessage: '',
+    errorDetails: null,
+    retryCount: 0,
+    showRetryButton: false
+  });
 
   // スタイル定義
   const newReceiptStyles = `bg-gradient-to-br from-slate-800 via-emerald-800 to-slate-900 border-emerald-600/50 text-slate-100 shadow-lg 
@@ -222,6 +270,115 @@ export default function ReceiptsPage() {
     [&_.text-blue-600]:!text-blue-300 [&_.text-purple-600]:!text-purple-300 [&_.text-orange-600]:!text-amber-300`;
   
   const selectedReceiptStyles = 'bg-blue-50 border-blue-400 shadow-md';
+
+  // 🔔 通知システム: エラー・成功の統一管理
+  const showNotification = React.useCallback((
+    type: 'success' | 'error' | 'warning' | 'info',
+    title: string,
+    message: string,
+    duration: number = 5000
+  ) => {
+    const id = crypto.randomUUID();
+    const newNotification = {
+      id,
+      type,
+      title,
+      message,
+      timestamp: new Date(),
+      isVisible: true
+    };
+    
+    setNotifications(prev => [...prev, newNotification]);
+    
+    // 自動削除
+    setTimeout(() => {
+      setNotifications(prev => prev.map(n => 
+        n.id === id ? { ...n, isVisible: false } : n
+      ));
+      
+      // フェードアウト後に完全削除
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, 300);
+    }, duration);
+  }, []);
+  
+  // 🚨 エラー状態管理: 詳細なエラー情報と復旧機能
+  const handleError = React.useCallback((
+    error: any,
+    errorType: 'upload' | 'ocr' | 'network' | 'permission' | 'general',
+    context?: string
+  ) => {
+    let title = 'エラーが発生しました';
+    let message = 'しばらく時間をおいて再試行してください。';
+    let showRetryButton = false;
+    
+    // エラータイプ別のカスタマイズ
+    switch (errorType) {
+      case 'upload':
+        title = '📤 アップロードエラー';
+        message = 'ファイルのアップロードに失敗しました。ファイル形式とサイズを確認してください。';
+        showRetryButton = true;
+        break;
+      case 'ocr':
+        title = '🔍 OCR処理エラー';
+        message = 'レシートの読み取りに失敗しました。画像が鮮明で、文字が見やすいか確認してください。';
+        showRetryButton = true;
+        break;
+      case 'network':
+        title = '🌐 ネットワークエラー';
+        message = 'インターネット接続を確認し、再試行してください。';
+        showRetryButton = true;
+        break;
+      case 'permission':
+        title = '🔐 権限エラー';
+        message = 'この操作を実行する権限がありません。ログインし直してください。';
+        showRetryButton = false;
+        break;
+      case 'general':
+      default:
+        if (error?.message) {
+          message = error.message;
+        }
+        showRetryButton = true;
+        break;
+    }
+    
+    // エラー状態を更新
+    setErrorState(prev => ({
+      hasError: true,
+      errorType,
+      errorMessage: message,
+      errorDetails: error,
+      retryCount: prev.retryCount + 1,
+      showRetryButton
+    }));
+    
+    // エラー通知を表示
+    showNotification('error', title, message, 8000);
+    
+    console.error(`❌ ${title} [${errorType}]${context ? ` - ${context}` : ''}:`, error);
+  }, [showNotification]);
+  
+  // ✅ 成功状態管理
+  const handleSuccess = React.useCallback((
+    title: string,
+    message: string,
+    clearErrors: boolean = true
+  ) => {
+    if (clearErrors) {
+      setErrorState({
+        hasError: false,
+        errorType: null,
+        errorMessage: '',
+        errorDetails: null,
+        retryCount: 0,
+        showRetryButton: false
+      });
+    }
+    
+    showNotification('success', title, message, 4000);
+  }, [showNotification]);
 
   // レシートのフィルタリング・ソート機能
   const filteredAndSortedReceipts = React.useMemo(() => {
@@ -446,6 +603,7 @@ export default function ReceiptsPage() {
       setReceipts(data || []);
     } catch (error) {
       console.error('Error fetching receipts:', error);
+      handleError(error, 'network', 'レシート取得');
     } finally {
       setLoadingReceipts(false);
     }
@@ -970,8 +1128,7 @@ export default function ReceiptsPage() {
       
     } catch (error) {
       console.error('Batch processing error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`❌ 処理エラー: ${errorMessage}`);
+      handleError(error, 'upload', 'バッチ処理中');
     } finally {
       // 確実にローディング状態を解除
       setProcessingUpload(false);
@@ -1117,10 +1274,10 @@ export default function ReceiptsPage() {
         .eq('id', receipt.id);
 
       fetchReceipts();
-      alert('取引を作成しました');
+      handleSuccess('✅ 取引作成完了', 'レシートから取引を作成しました');
     } catch (error) {
       console.error('Error creating transaction:', error);
-      alert('取引の作成に失敗しました');
+      handleError(error, 'general', '取引作成');
     }
   };
 
@@ -1144,10 +1301,10 @@ export default function ReceiptsPage() {
       // ローカル状態から削除
       setReceipts(prev => prev.filter(receipt => receipt.id !== receiptId));
       
-      alert('レシートを削除しました');
+      handleSuccess('🗑️ 削除完了', 'レシートを削除しました');
     } catch (error) {
       console.error('Error deleting receipt:', error);
-      alert('レシートの削除に失敗しました');
+      handleError(error, 'general', 'レシート削除');
     }
   };
 
@@ -2302,6 +2459,63 @@ export default function ReceiptsPage() {
           </div>
         </main>
         <BottomNav />
+      </div>
+
+      {/* 🔔 通知システムUI: 右上に表示されるトースト通知 */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {notifications.map((notification) => (
+          <div
+            key={notification.id}
+            className={`
+              transform transition-all duration-300 ease-in-out
+              ${notification.isVisible 
+                ? 'translate-x-0 opacity-100' 
+                : 'translate-x-full opacity-0'
+              }
+              max-w-md bg-white dark:bg-slate-800 rounded-lg shadow-lg border-l-4 p-4
+              ${notification.type === 'success' ? 'border-green-500' : 
+                notification.type === 'error' ? 'border-red-500' : 
+                notification.type === 'warning' ? 'border-yellow-500' : 'border-blue-500'}
+            `}
+          >
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' && (
+                  <div className="w-5 h-5 text-green-500">✅</div>
+                )}
+                {notification.type === 'error' && (
+                  <div className="w-5 h-5 text-red-500">❌</div>
+                )}
+                {notification.type === 'warning' && (
+                  <div className="w-5 h-5 text-yellow-500">⚠️</div>
+                )}
+                {notification.type === 'info' && (
+                  <div className="w-5 h-5 text-blue-500">ℹ️</div>
+                )}
+              </div>
+              <div className="ml-3 flex-1">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {notification.title}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
+                  {notification.message}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setNotifications(prev => 
+                    prev.map(n => 
+                      n.id === notification.id ? { ...n, isVisible: false } : n
+                    )
+                  );
+                }}
+                className="ml-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
 {/* リアルタイムプログレス表示を削除 */}

@@ -342,11 +342,78 @@ export function ReceiptUpload({ onUpload, isProcessing = false, allowMultiple = 
                 </div>
               </div>
               
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground">
-                  <p>対応形式: JPG, PNG, WEBP</p>
-                  <p>最大サイズ: 10MB/枚</p>
+              {/* 📸 OCR品質向上のための詳細撮影ガイド */}
+              <div className="space-y-3 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg border border-blue-200/50 dark:border-blue-800/30">
+                <div className="text-center mb-2">
+                  <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 flex items-center justify-center gap-1">
+                    📷 高精度OCRのための撮影ガイド
+                  </h4>
                 </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600 dark:text-green-400">✅</span>
+                      <span className="font-medium">良い例</span>
+                    </div>
+                    <ul className="text-muted-foreground space-y-0.5 ml-6">
+                      <li>• 明るい場所で撮影</li>
+                      <li>• レシート全体がフレーム内</li>
+                      <li>• 手ブレしていない</li>
+                      <li>• 文字が鮮明に読める</li>
+                      <li>• 影がかかっていない</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-500 dark:text-red-400">❌</span>
+                      <span className="font-medium">避けるべき</span>
+                    </div>
+                    <ul className="text-muted-foreground space-y-0.5 ml-6">
+                      <li>• 暗い場所での撮影</li>
+                      <li>• レシートが途切れている</li>
+                      <li>• ピントが合っていない</li>
+                      <li>• 斜めから撮影</li>
+                      <li>• 反射や光の映り込み</li>
+                    </ul>
+                  </div>
+                </div>
+                
+                {/* 📊 技術的な仕様情報 */}
+                <div className="border-t pt-2 mt-2 border-blue-200/50 dark:border-blue-800/30">
+                  <div className="flex justify-between items-center text-xs">
+                    <div className="space-y-0.5">
+                      <p className="text-blue-700 dark:text-blue-300">
+                        <span className="font-medium">対応形式:</span> JPG, PNG, WEBP
+                      </p>
+                      <p className="text-blue-700 dark:text-blue-300">
+                        <span className="font-medium">推奨サイズ:</span> 0.5-2MB（高品質OCR）
+                      </p>
+                    </div>
+                    <div className="text-right space-y-0.5">
+                      <p className="text-blue-700 dark:text-blue-300">
+                        <span className="font-medium">最大サイズ:</span> 10MB/枚
+                      </p>
+                      <p className="text-blue-700 dark:text-blue-300">
+                        <span className="font-medium">推奨解像度:</span> 1200px以上
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 🎯 クイックヒント */}
+                <div className="bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800/30 rounded p-2">
+                  <p className="text-xs text-yellow-800 dark:text-yellow-200 flex items-start gap-1">
+                    <span className="mt-0.5">💡</span>
+                    <span>
+                      <strong>ヒント:</strong> 
+                      スマートフォンのカメラアプリで撮影してからアップロードすると、
+                      より高品質な画像が得られます。
+                    </span>
+                  </p>
+                </div>
+              </div>
                 
                 {/* 枚数制限選択 */}
                 {allowMultiple && (

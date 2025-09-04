@@ -16,9 +16,7 @@ async function parsePDFImproved(pdfBuffer: Buffer) {
     // pdf-parseを最小限のオプションで実行
     const options = {
       // 問題を引き起こす可能性のあるオプションを無効化
-      version: false,
       max: 0,
-      pagerender: undefined,
       normalizeWhitespace: false
     };
     

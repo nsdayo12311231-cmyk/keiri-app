@@ -1,10 +1,11 @@
 /**
- * データエクスポート機能
+ * データエクスポート機能（クロスプラットフォーム対応版）
  * CSV、Excel（XLSX）形式での取引データ、レシート、レポートの出力
+ * PC・スマホ・タブレット環境での互換性を保証
  */
 
-// ExcelJS library for creating Excel files
-// We'll use a client-side approach that doesn't require ExcelJS installation
+import { universalDownload, detectPlatform, preflightCheck, batchDownload } from './universal-download';
+import { downloadForIOSSafari, detectiOSEnvironment, downloadFileOnIOS } from './ios-download-fix';
 export interface TransactionData {
   id: string;
   date: string;
@@ -32,96 +33,182 @@ export interface ExportOptions {
 }
 
 /**
- * 取引データをCSV形式でエクスポート
+ * 取引データをCSV形式でエクスポート（クロスプラットフォーム対応）
  */
-export function exportTransactionsToCSV(
+export async function exportTransactionsToCSV(
   transactions: TransactionData[],
   filename?: string,
   onSuccess?: (title: string, message: string) => void
-): void {
-  const headers = [
-    '日付',
-    '種別',
-    '金額',
-    '説明',
-    'カテゴリID',
-    'カテゴリ名',
-    '事業用',
-    '店舗名',
-    'レシートURL',
-    '備考'
-  ];
+): Promise<void> {
+  try {
+    const headers = [
+      '日付',
+      '種別',
+      '金額',
+      '説明',
+      'カテゴリID',
+      'カテゴリ名',
+      '事業用',
+      '店舗名',
+      'レシートURL',
+      '備考'
+    ];
 
-  const csvContent = [
-    headers.join(','),
-    ...transactions.map(transaction => [
-      transaction.date,
-      transaction.type === 'income' ? '収入' : '支出',
-      transaction.amount.toString(),
-      `"${(transaction.description || '').replace(/"/g, '""')}"`, // CSV escape
-      transaction.categoryName || '',
-      `"${(transaction.categoryName || '').replace(/"/g, '""')}"`,
-      transaction.isBusiness ? '事業用' : '個人用',
-      `"${(transaction.merchantName || '').replace(/"/g, '""')}"`,
-      transaction.receiptUrl || '',
-      `"${(transaction.notes || '').replace(/"/g, '""')}"`
-    ].join(','))
-  ].join('\n');
+    const csvContent = [
+      headers.join(','),
+      ...transactions.map(transaction => [
+        transaction.date,
+        transaction.type === 'income' ? '収入' : '支出',
+        transaction.amount.toString(),
+        `"${(transaction.description || '').replace(/"/g, '""')}"`, // CSV escape
+        transaction.categoryId || '',
+        `"${(transaction.categoryName || '').replace(/"/g, '""')}"`,
+        transaction.isBusiness ? '事業用' : '個人用',
+        `"${(transaction.merchantName || '').replace(/"/g, '""')}"`,
+        transaction.receiptUrl || '',
+        `"${(transaction.notes || '').replace(/"/g, '""')}"`
+      ].join(','))
+    ].join('\n');
 
-  const blob = new Blob(['\uFEFF' + csvContent], { 
-    type: 'text/csv;charset=utf-8;' 
-  }); // UTF-8 BOM for Japanese characters
-  
-  downloadFile(blob, filename || `取引データ_${getCurrentDateString()}.csv`, onSuccess);
+    // iOS Safari専用の処理を優先
+    const platform = detectPlatform();
+    if (platform.type === 'ios' && platform.browser === 'safari') {
+      const result = await downloadFileOnIOS(
+        csvContent,
+        filename || `取引データ_${getCurrentDateString()}.csv`,
+        'text/csv;charset=utf-8'
+      );
+      
+      if (result.success && onSuccess) {
+        onSuccess('📱 iPhone: ダウンロード完了', result.message);
+      }
+      
+      if (!result.success) {
+        console.warn('iOS Safari ダウンロード失敗、universal-downloadにフォールバック');
+        // フォールバック処理
+        const fallbackResult = await universalDownload(csvContent, {
+          filename: filename || `取引データ_${getCurrentDateString()}.csv`,
+          mimeType: 'text/csv;charset=utf-8;',
+          showSuccessMessage: false,
+          fallbackToNewTab: true
+        });
+        
+        if (!fallbackResult.success) {
+          throw new Error(result.message || 'ダウンロードに失敗しました');
+        }
+      }
+      return;
+    }
+
+    // その他のプラットフォーム用の通常処理
+    const result = await universalDownload(csvContent, {
+      filename: filename || `取引データ_${getCurrentDateString()}.csv`,
+      mimeType: 'text/csv;charset=utf-8;',
+      showSuccessMessage: false,
+      fallbackToNewTab: true
+    });
+
+    if (result.success && onSuccess) {
+      const { title, message } = getSaveLocationMessage(result.platform, filename || `取引データ_${getCurrentDateString()}.csv`);
+      onSuccess(title, message);
+    }
+
+    if (!result.success) {
+      throw new Error(result.error || 'ダウンロードに失敗しました');
+    }
+  } catch (error) {
+    console.error('CSV エクスポートエラー:', error);
+    throw error;
+  }
 }
 
 /**
- * 取引データをExcel形式でエクスポート（簡易版）
+ * 取引データをExcel形式でエクスポート（クロスプラットフォーム対応）
  * クライアントサイドでExcelファイルを生成
  */
-export function exportTransactionsToExcel(
+export async function exportTransactionsToExcel(
   transactions: TransactionData[],
   filename?: string
-): void {
-  // HTMLテーブルをExcelに変換する方式
-  const headers = [
-    '日付',
-    '種別',
-    '金額',
-    '説明',
-    'カテゴリID',
-    'カテゴリ名',
-    '事業用',
-    '店舗名',
-    'レシートURL',
-    '備考'
-  ];
+): Promise<void> {
+  try {
+    // HTMLテーブルをExcelに変換する方式
+    const headers = [
+      '日付',
+      '種別',
+      '金額',
+      '説明',
+      'カテゴリID',
+      'カテゴリ名',
+      '事業用',
+      '店舗名',
+      'レシートURL',
+      '備考'
+    ];
 
-  let tableHTML = '<table border="1">';
-  
-  // ヘッダー行
-  tableHTML += '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
-  
-  // データ行
-  transactions.forEach(transaction => {
-    tableHTML += '<tr>';
-    tableHTML += `<td>${transaction.date}</td>`;
-    tableHTML += `<td>${transaction.type === 'income' ? '収入' : '支出'}</td>`;
-    tableHTML += `<td>${transaction.amount}</td>`;
-    tableHTML += `<td>${transaction.description || ''}</td>`;
-    tableHTML += `<td>${transaction.category_id || ''}</td>`;
-    tableHTML += `<td>${transaction.categoryName || ''}</td>`;
-    tableHTML += `<td>${transaction.isBusiness ? '事業用' : '個人用'}</td>`;
-    tableHTML += `<td>${transaction.merchantName || ''}</td>`;
-    tableHTML += `<td>${transaction.receiptUrl || ''}</td>`;
-    tableHTML += `<td>${transaction.notes || ''}</td>`;
-    tableHTML += '</tr>';
-  });
-  
-  tableHTML += '</table>';
+    let tableHTML = '<table border="1">';
+    
+    // ヘッダー行
+    tableHTML += '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+    
+    // データ行
+    transactions.forEach(transaction => {
+      tableHTML += '<tr>';
+      tableHTML += `<td>${transaction.date}</td>`;
+      tableHTML += `<td>${transaction.type === 'income' ? '収入' : '支出'}</td>`;
+      tableHTML += `<td>${transaction.amount}</td>`;
+      tableHTML += `<td>${transaction.description || ''}</td>`;
+      tableHTML += `<td>${transaction.categoryId || ''}</td>`;
+      tableHTML += `<td>${transaction.categoryName || ''}</td>`;
+      tableHTML += `<td>${transaction.isBusiness ? '事業用' : '個人用'}</td>`;
+      tableHTML += `<td>${transaction.merchantName || ''}</td>`;
+      tableHTML += `<td>${transaction.receiptUrl || ''}</td>`;
+      tableHTML += `<td>${transaction.notes || ''}</td>`;
+      tableHTML += '</tr>';
+    });
+    
+    tableHTML += '</table>';
 
-  const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel' });
-  downloadFile(blob, filename || `取引データ_${getCurrentDateString()}.xlsx`);
+    // iOS Safari専用の処理を優先
+    const platform = detectPlatform();
+    if (platform.type === 'ios' && platform.browser === 'safari') {
+      const result = await downloadFileOnIOS(
+        tableHTML,
+        filename || `取引データ_${getCurrentDateString()}.xlsx`,
+        'application/vnd.ms-excel'
+      );
+      
+      if (!result.success) {
+        console.warn('iOS Safari Excel ダウンロード失敗、universal-downloadにフォールバック');
+        // フォールバック処理
+        const fallbackResult = await universalDownload(tableHTML, {
+          filename: filename || `取引データ_${getCurrentDateString()}.xlsx`,
+          mimeType: 'application/vnd.ms-excel',
+          showSuccessMessage: true,
+          fallbackToNewTab: true
+        });
+        
+        if (!fallbackResult.success) {
+          throw new Error(result.message || 'Excel エクスポートに失敗しました');
+        }
+      }
+      return;
+    }
+
+    // その他のプラットフォーム用の通常処理
+    const result = await universalDownload(tableHTML, {
+      filename: filename || `取引データ_${getCurrentDateString()}.xlsx`,
+      mimeType: 'application/vnd.ms-excel',
+      showSuccessMessage: true,
+      fallbackToNewTab: true
+    });
+
+    if (!result.success) {
+      throw new Error(result.error || 'Excel エクスポートに失敗しました');
+    }
+  } catch (error) {
+    console.error('Excel エクスポートエラー:', error);
+    throw error;
+  }
 }
 
 /**
@@ -170,6 +257,22 @@ export function exportReportToCSV(reportData: {
     type: 'text/csv;charset=utf-8;' 
   });
 
+  // iOS Safari専用の処理を優先
+  const platform = detectPlatform();
+  if (platform.type === 'ios' && platform.browser === 'safari') {
+    downloadFileOnIOS(
+      csvContent,
+      filename || `財務レポート_${reportData.period}_${getCurrentDateString()}.csv`,
+      'text/csv;charset=utf-8'
+    ).then(result => {
+      if (result.success && onSuccess) {
+        onSuccess('📱 iPhone: レポートダウンロード完了', result.message);
+      }
+    });
+    return;
+  }
+
+  // その他のプラットフォーム用の従来処理
   downloadFile(blob, filename || `財務レポート_${reportData.period}_${getCurrentDateString()}.csv`, onSuccess);
 }
 
@@ -236,6 +339,18 @@ export function exportTaxDataToCSV(taxData: {
     type: 'text/csv;charset=utf-8;' 
   });
 
+  // iOS Safari専用の処理を優先
+  const platform = detectPlatform();
+  if (platform.type === 'ios' && platform.browser === 'safari') {
+    downloadFileOnIOS(
+      csvContent,
+      filename || `税務データ_${taxData.year}_${getCurrentDateString()}.csv`,
+      'text/csv;charset=utf-8'
+    );
+    return;
+  }
+
+  // その他のプラットフォーム用の従来処理
   downloadFile(blob, filename || `税務データ_${taxData.year}_${getCurrentDateString()}.csv`);
 }
 
@@ -289,30 +404,136 @@ export function exportReceiptsToCSV(receipts: Array<{
     type: 'text/csv;charset=utf-8;' 
   });
   
+  // iOS Safari専用の処理を優先
+  const platform = detectPlatform();
+  if (platform.type === 'ios' && platform.browser === 'safari') {
+    downloadFileOnIOS(
+      csvContent,
+      filename || `レシートデータ_${getCurrentDateString()}.csv`,
+      'text/csv;charset=utf-8'
+    ).then(result => {
+      if (result.success && onSuccess) {
+        onSuccess('📱 iPhone: レシートデータダウンロード完了', result.message);
+      }
+    });
+    return;
+  }
+
+  // その他のプラットフォーム用の従来処理
   downloadFile(blob, filename || `レシートデータ_${getCurrentDateString()}.csv`, onSuccess);
 }
 
 /**
- * 複数形式での一括エクスポート
+ * 複数形式での一括エクスポート（クロスプラットフォーム対応）
  */
-export function exportAllData(data: {
+export async function exportAllData(data: {
   transactions: TransactionData[];
   receipts: Array<any>;
   reportData: any;
   taxData?: any;
-}): void {
-  
-  // 日時を含むフォルダ名風のプレフィックス
-  const timestamp = getCurrentDateString();
-  const prefix = `keiri_export_${timestamp}`;
+}): Promise<void> {
+  try {
+    // 日時を含むフォルダ名風のプレフィックス
+    const timestamp = getCurrentDateString();
+    const prefix = `keiri_export_${timestamp}`;
 
-  // 個別にダウンロード（ブラウザの制限で同時ダウンロードは難しい）
-  setTimeout(() => exportTransactionsToCSV(data.transactions, `${prefix}_取引データ.csv`), 100);
-  setTimeout(() => exportReceiptsToCSV(data.receipts, `${prefix}_レシート.csv`), 200);
-  setTimeout(() => exportReportToCSV(data.reportData, `${prefix}_レポート.csv`), 300);
-  
-  if (data.taxData) {
-    setTimeout(() => exportTaxDataToCSV(data.taxData, `${prefix}_税務データ.csv`), 400);
+    // バッチダウンロードを使用してクロスプラットフォーム対応
+    const files: Array<{ data: string; filename: string; mimeType?: string }> = [];
+    
+    // 取引データCSV
+    if (data.transactions.length > 0) {
+      const csvContent = createTransactionCSV(data.transactions);
+      files.push({
+        data: csvContent,
+        filename: `${prefix}_取引データ.csv`,
+        mimeType: 'text/csv;charset=utf-8;'
+      });
+    }
+    
+    // レシートデータCSV
+    if (data.receipts.length > 0) {
+      const receiptCsvContent = createReceiptCSV(data.receipts);
+      files.push({
+        data: receiptCsvContent,
+        filename: `${prefix}_レシート.csv`,
+        mimeType: 'text/csv;charset=utf-8;'
+      });
+    }
+    
+    // レポートCSV
+    if (data.reportData) {
+      const reportCsvContent = createReportCSV(data.reportData);
+      files.push({
+        data: reportCsvContent,
+        filename: `${prefix}_レポート.csv`,
+        mimeType: 'text/csv;charset=utf-8;'
+      });
+    }
+    
+    // 税務データCSV
+    if (data.taxData) {
+      const taxCsvContent = createTaxDataCSV(data.taxData);
+      files.push({
+        data: taxCsvContent,
+        filename: `${prefix}_税務データ.csv`,
+        mimeType: 'text/csv;charset=utf-8;'
+      });
+    }
+
+    // iOS Safari専用の処理を優先
+    const platform = detectPlatform();
+    if (platform.type === 'ios' && platform.browser === 'safari') {
+      console.log('🍎 iOS Safari用の一括ダウンロード開始');
+      
+      // iOS専用の個別ダウンロード（間隔を空けて）
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`📥 ダウンロード中 ${i + 1}/${files.length}: ${file.filename}`);
+        
+        try {
+          const result = await downloadFileOnIOS(
+            file.data,
+            file.filename,
+            file.mimeType || 'text/csv;charset=utf-8'
+          );
+          
+          if (!result.success) {
+            console.warn(`⚠️ iOS ダウンロード失敗: ${file.filename}, フォールバック実行`);
+            // フォールバックとして universal-download を使用
+            await universalDownload(file.data, {
+              filename: file.filename,
+              mimeType: file.mimeType || 'text/csv;charset=utf-8',
+              showSuccessMessage: false,
+              fallbackToNewTab: true
+            });
+          }
+          
+          // iOS Safari用の長い間隔
+          if (i < files.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+          
+        } catch (error) {
+          console.error(`❌ ファイルダウンロード失敗: ${file.filename}`, error);
+        }
+      }
+    } else {
+      // その他のプラットフォーム用のバッチダウンロード
+      await batchDownload(files, {
+        interval: 800,
+        onProgress: (index, total, filename) => {
+          console.log(`📥 ダウンロード中 ${index}/${total}: ${filename}`);
+        },
+        onError: (index, filename, error) => {
+          console.error(`❌ ファイルダウンロード失敗: ${filename}`, error);
+        }
+      });
+    }
+
+    console.log(`✅ 一括エクスポート完了: ${files.length}ファイル`);
+  } catch (error) {
+    console.error('一括エクスポートエラー:', error);
+    throw error;
   }
 }
 
@@ -375,7 +596,21 @@ export function generateImportTemplate(type: 'transactions' | 'receipts'): void 
     type: 'text/csv;charset=utf-8;' 
   });
 
-  downloadFile(blob, `インポートテンプレート_${type}_${getCurrentDateString()}.csv`);
+  // iOS Safari専用の処理を優先
+  const platform = detectPlatform();
+  const templateFilename = `インポートテンプレート_${type}_${getCurrentDateString()}.csv`;
+  
+  if (platform.type === 'ios' && platform.browser === 'safari') {
+    downloadFileOnIOS(
+      csvContent,
+      templateFilename,
+      'text/csv;charset=utf-8'
+    );
+    return;
+  }
+
+  // その他のプラットフォーム用の従来処理
+  downloadFile(blob, templateFilename);
 }
 
 /**
@@ -394,15 +629,15 @@ function detectDevice(): 'ios' | 'android' | 'desktop' {
 }
 
 /**
- * 保存先案内メッセージの生成
+ * 保存先案内メッセージの生成（新しいプラットフォーム情報対応）
  */
-export function getSaveLocationMessage(filename: string): { title: string; message: string } {
-  const device = detectDevice();
+export function getSaveLocationMessage(platform: any, filename: string): { title: string; message: string } {
+  const platformType = platform?.type || detectDevice();
   
-  switch (device) {
+  switch (platformType) {
     case 'ios':
       return {
-        title: 'CSVファイルをダウンロードしました',
+        title: 'ファイルをダウンロードしました',
         message: `📱 iPhone/iPad での保存先:
 • 「ファイル」アプリ → 「ダウンロード」フォルダ
 • Safari: 画面下のダウンロードボタン（↓）をタップ
@@ -413,7 +648,7 @@ export function getSaveLocationMessage(filename: string): { title: string; messa
       
     case 'android':
       return {
-        title: 'CSVファイルをダウンロードしました',
+        title: 'ファイルをダウンロードしました',
         message: `📱 Android での保存先:
 • 「ファイル」または「Files」アプリ → 「Download」フォルダ  
 • 通知パネルからダウンロード完了通知をタップ
@@ -424,7 +659,7 @@ export function getSaveLocationMessage(filename: string): { title: string; messa
       
     default:
       return {
-        title: 'CSVファイルをダウンロードしました', 
+        title: 'ファイルをダウンロードしました', 
         message: `💻 デスクトップでの保存先:
 • ダウンロードフォルダ
 • ブラウザで設定した保存先
@@ -432,6 +667,108 @@ export function getSaveLocationMessage(filename: string): { title: string; messa
 ファイル名: ${filename}`
       };
   }
+}
+
+/**
+ * CSV コンテンツ生成補助関数群
+ */
+function createTransactionCSV(transactions: TransactionData[]): string {
+  const headers = ['日付', '種別', '金額', '説明', 'カテゴリID', 'カテゴリ名', '事業用', '店舗名', 'レシートURL', '備考'];
+  
+  const csvContent = [
+    headers.join(','),
+    ...transactions.map(transaction => [
+      transaction.date,
+      transaction.type === 'income' ? '収入' : '支出',
+      transaction.amount.toString(),
+      `"${(transaction.description || '').replace(/"/g, '""')}"`,
+      transaction.categoryId || '',
+      `"${(transaction.categoryName || '').replace(/"/g, '""')}"`,
+      transaction.isBusiness ? '事業用' : '個人用',
+      `"${(transaction.merchantName || '').replace(/"/g, '""')}"`,
+      transaction.receiptUrl || '',
+      `"${(transaction.notes || '').replace(/"/g, '""')}"`
+    ].join(','))
+  ].join('\n');
+  
+  return '\uFEFF' + csvContent; // UTF-8 BOM
+}
+
+function createReceiptCSV(receipts: Array<any>): string {
+  const headers = ['日付', '金額', '説明', '店舗名', 'カテゴリID', 'カテゴリ名', '事業用', 'レシート画像URL', 'OCRテキスト', 'AI信頼度'];
+  
+  const csvContent = [
+    headers.join(','),
+    ...receipts.map(receipt => [
+      receipt.date || receipt.created_at?.split('T')[0] || '',
+      (receipt.amount || 0).toString(),
+      `"${(receipt.description || '').replace(/"/g, '""')}"`,
+      `"${(receipt.merchantName || receipt.merchant_name || '').replace(/"/g, '""')}"`,
+      receipt.categoryId || receipt.category_id || '',
+      `"${(receipt.categoryName || receipt.description || '').replace(/"/g, '""')}"`,
+      receipt.isBusiness || receipt.is_business ? '事業用' : '個人用',
+      receipt.imageUrl || receipt.image_url || '',
+      `"${(receipt.ocrText || receipt.ocr_text || '').replace(/"/g, '""').substring(0, 100)}"`,
+      receipt.confidence || receipt.ai_confidence ? (receipt.confidence || receipt.ai_confidence).toFixed(2) : ''
+    ].join(','))
+  ].join('\n');
+  
+  return '\uFEFF' + csvContent;
+}
+
+function createReportCSV(reportData: any): string {
+  const csvLines = [
+    '# 財務レポート',
+    `# 期間: ${reportData.period}`,
+    `# 生成日時: ${new Date().toLocaleString('ja-JP')}`,
+    '',
+    '## サマリー',
+    '項目,金額',
+    `総収入,${reportData.summary.totalIncome}`,
+    `総支出,${reportData.summary.totalExpenses}`,
+    `純利益,${reportData.summary.netIncome}`,
+    `取引件数,${reportData.summary.transactionCount}`,
+    `事業用支出,${reportData.businessExpenses}`,
+    `個人用支出,${reportData.personalExpenses}`,
+    '',
+    '## カテゴリ別内訳',
+    'カテゴリ,金額,割合(%)',
+    ...(reportData.categoryBreakdown || []).map((item: any) => 
+      `"${item.category}",${item.amount},${item.percentage?.toFixed(1) || '0.0'}`
+    )
+  ];
+  
+  return '\uFEFF' + csvLines.join('\n');
+}
+
+function createTaxDataCSV(taxData: any): string {
+  const csvLines = [
+    '# 年次税務データ（確定申告用）',
+    `# 対象年度: ${taxData.year}`,
+    `# 生成日時: ${new Date().toLocaleString('ja-JP')}`,
+    '',
+    '## 所得計算',
+    '項目,金額',
+    `総収入,${taxData.totalIncome}`,
+    `必要経費,${taxData.businessExpenses}`,
+    `所得金額,${taxData.netIncome}`,
+    '',
+    '## 控除内訳',
+    '控除種類,金額',
+    `基礎控除,${taxData.deductions.basic}`,
+    `青色申告特別控除,${taxData.deductions.blueForm}`,
+    `社会保険料控除,${taxData.deductions.socialInsurance}`,
+    `その他控除,${taxData.deductions.other}`,
+    '',
+    '## 税額計算',
+    '税目,金額',
+    `所得税,${taxData.taxCalculation.incomeTax}`,
+    `住民税,${taxData.taxCalculation.residenceTax}`,
+    `事業税,${taxData.taxCalculation.businessTax}`,
+    `合計税額,${taxData.taxCalculation.totalTax}`,
+  ];
+  
+  return '\uFEFF' + csvLines.join('\n');
 }
 
 /**
@@ -494,7 +831,7 @@ export function filterTransactions(
   // カテゴリフィルタ
   if (options.categories && options.categories.length > 0) {
     filtered = filtered.filter(t => 
-      t.category && options.categories!.includes(t.category)
+      t.categoryId && options.categories!.includes(t.categoryId)
     );
   }
 

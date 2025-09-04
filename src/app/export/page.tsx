@@ -40,6 +40,7 @@ import {
   type TransactionData,
   type ExportOptions
 } from '@/lib/utils/data-export';
+import { DebugPanel } from '@/components/reports/debug-panel';
 
 interface ExportData {
   id: string;
@@ -237,7 +238,7 @@ export default function ExportPage() {
       type: Number(item.amount) < 0 ? 'expense' : 'income',
       amount: item.amount,
       description: item.description,
-      category: item.account_categories?.code,
+      categoryId: item.account_categories?.code,
       categoryName: item.account_categories?.name,
       isBusiness: item.is_business,
       merchantName: '',
@@ -269,7 +270,7 @@ export default function ExportPage() {
         amount: r.amount || 0,
         description: r.description || '',
         merchantName: r.merchant_name || '',
-        category: r.category,
+        categoryId: r.category_id,
         categoryName: r.description,
         isBusiness: r.is_business || false,
         imageUrl: r.image_url,
@@ -380,16 +381,16 @@ export default function ExportPage() {
         personalExpenses: summary?.personalExpenses || 0
       };
       
-      exportAllData({
+      await exportAllData({
         transactions: transactionData,
         receipts: receipts || [],
         reportData
       });
       
-      alert('全データのエクスポートを開始しました（複数ファイルがダウンロードされます）');
+      showToast('success', '一括エクスポート完了', '全データのエクスポートが完了しました');
     } catch (error) {
       console.error('Export all error:', error);
-      alert('全データエクスポート中にエラーが発生しました');
+      showToast('error', 'エクスポートエラー', '全データエクスポート中にエラーが発生しました');
     } finally {
       setIsGenerating(false);
     }
@@ -447,7 +448,7 @@ export default function ExportPage() {
       const transactionData = convertToTransactionData(transactions);
       
       if (exportFormat === 'csv') {
-        exportTransactionsToCSV(
+        await exportTransactionsToCSV(
           transactionData, 
           undefined, 
           (title, message) => {
@@ -455,7 +456,7 @@ export default function ExportPage() {
           }
         );
       } else {
-        exportTransactionsToExcel(transactionData);
+        await exportTransactionsToExcel(transactionData);
       }
 
       setLastExportDate(new Date().toISOString());
@@ -820,6 +821,13 @@ export default function ExportPage() {
                   </Card>
                 </div>
               </div>
+
+              {/* iPhone デバッグパネル */}
+              <div className="mt-8">
+                <DebugPanel onTestDownload={() => {
+                  console.log('テストダウンロード実行完了');
+                }} />
+              </div>
             </div>
           </main>
         </div>
@@ -949,6 +957,13 @@ export default function ExportPage() {
                 </>
               )}
             </Button>
+
+            {/* iPhone デバッグパネル（モバイル版） */}
+            <div className="mt-6">
+              <DebugPanel onTestDownload={() => {
+                console.log('iPhone テストダウンロード実行完了');
+              }} />
+            </div>
           </div>
         </main>
         <BottomNav />

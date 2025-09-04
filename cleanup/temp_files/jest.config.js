@@ -1,8 +1,9 @@
 /** @type {import('jest').Config} */
 const config = {
+  preset: 'ts-jest',
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   testPathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/node_modules/'],
@@ -20,6 +21,14 @@ const config = {
       statements: 80,
     },
   },
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+  globals: {
+    'ts-jest': {
+      useESM: true,
+    },
+  },
+  // Load test environment variables
+  setupFiles: ['<rootDir>/jest.env.js'],
 };
 
 module.exports = config;

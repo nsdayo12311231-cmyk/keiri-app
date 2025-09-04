@@ -15,79 +15,146 @@ import { PhotographyHelp } from '@/components/receipts/photography-help';
 import { RealtimeProgress } from '@/components/receipts/realtime-progress';
 import { SidebarGuide } from '@/components/layout/sidebar-guide';
 import { Calculator, Camera, FileText, Calendar, Tag, Building2, User, Eye, Edit2, Check, X, Trash2, CheckSquare, Square, AlertTriangle, Search, Filter, SortAsc, SortDesc, Download, FileDown } from 'lucide-react';
+import { universalDownload } from '@/lib/utils/universal-download';
 import { Input } from '@/components/ui/input';
 // import { ReceiptOCR } from '@/lib/ocr/vision-api'; // サーバーサイドAPI使用のため削除
 import { autoClassifyReceipt } from '@/lib/utils/receipt-classifier';
 import { classifyWithAI } from '@/lib/classification/huggingface-classifier';
 import { classifyWithOpenAI, setOpenAIApiKey } from '@/lib/classification/openai-classifier';
 
-// 画像を自動圧縮してBase64に変換する関数
+// 環境検知関数
+const detectEnvironment = () => {
+  const userAgent = navigator.userAgent;
+  const isWindows = userAgent.includes('Windows');
+  const isMac = userAgent.includes('Mac');
+  const isChrome = userAgent.includes('Chrome');
+  const isEdge = userAgent.includes('Edge');
+  
+  return { isWindows, isMac, isChrome, isEdge, userAgent };
+};
+
+// エラー報告関数（テストユーザーに負担をかけない自動ログ）
+const reportError = async (error: any, context: any) => {
+  try {
+    console.error('🔍 自動エラー収集:', { error: error.message, context });
+    
+    // サーバーに自動でエラーレポートを送信
+    await fetch('/api/error-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: error.message,
+        stack: error.stack,
+        context,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent
+      })
+    }).catch(() => {}); // エラー送信が失敗してもスルー
+  } catch (e) {
+    // 何もしない（テストユーザーには影響しない）
+  }
+};
+
+// 統一された高品質画像圧縮（全環境対応）
 const compressImageToBase64 = async (file: File): Promise<string> => {
+  const env = detectEnvironment();
+  
+  return new Promise(async (resolve, reject) => {
+    try {
+      console.log(`🖼️ 画像圧縮開始 - 環境: ${env.isWindows ? 'Windows' : env.isMac ? 'macOS' : 'Other'}`);
+      
+      // 統一処理（環境による品質差を無くす）
+      const result = await compressImageUnified(file, env);
+      resolve(result);
+      
+    } catch (error) {
+      await reportError(error, { method: 'unified', fileSize: file.size, env });
+      reject(error);
+    }
+  });
+};
+
+// 統一高品質画像圧縮関数（全環境で同等品質を保証）
+const compressImageUnified = (file: File, env: any): Promise<string> => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
     
+    // 環境に関係なく統一タイムアウト
+    const timeout = setTimeout(() => {
+      reject(new Error(`画像処理がタイムアウトしました（環境: ${env.isWindows ? 'Windows' : 'Other'}）`));
+    }, 20000); // 20秒統一
+    
     img.onload = () => {
-      // 元の画像サイズ
-      const originalWidth = img.width;
-      const originalHeight = img.height;
+      clearTimeout(timeout);
       
-      // 段階的なサイズ制限（どんな大きな画像でも300KB以下に）
-      let maxWidth = 1600;
-      let maxHeight = 2000;
-      
-      // 非常に大きな画像の場合は初期サイズを小さく
-      if (originalWidth > 4000 || originalHeight > 4000 || file.size > 50 * 1024 * 1024) {
-        maxWidth = 1000;
-        maxHeight = 1200;
-        console.log('大きな画像検出、初期サイズを小さく設定');
-      }
-      
-      // アスペクト比を保持してリサイズ計算
-      let { width, height } = calculateOptimalSize(originalWidth, originalHeight, maxWidth, maxHeight);
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      // 高品質で描画
-      ctx!.imageSmoothingEnabled = true;
-      ctx!.imageSmoothingQuality = 'high';
-      ctx!.drawImage(img, 0, 0, width, height);
-      
-      // 段階的に品質を下げて300KB以下にする（確実に小さくする）
-      const tryCompress = (quality: number, maxSizeKB: number = 300): void => {
-        const base64 = canvas.toDataURL('image/jpeg', quality);
-        const estimatedSizeKB = Math.round(base64.length * 0.75 / 1024);
+      try {
+        const originalWidth = img.width;
+        const originalHeight = img.height;
         
-        console.log(`圧縮試行: 品質${Math.round(quality * 100)}%, 推定サイズ: ${estimatedSizeKB}KB`);
+        // 統一品質設定（環境差をなくす）
+        let maxWidth = 1200;
+        let maxHeight = 1600;
         
-        if (estimatedSizeKB <= maxSizeKB || quality <= 0.1) {
-          // 300KB以下になったか、最低品質に達した
-          console.log(`✅ 圧縮完了: 元${Math.round(file.size/1024)}KB → 約${estimatedSizeKB}KB`);
-          resolve(base64);
-        } else if (estimatedSizeKB > maxSizeKB * 3) {
-          // まだ3倍以上大きい場合は、さらに画像サイズを縮小
-          console.log('画像をさらに縮小して再試行');
-          canvas.width = Math.round(canvas.width * 0.8);
-          canvas.height = Math.round(canvas.height * 0.8);
-          ctx!.clearRect(0, 0, canvas.width, canvas.height);
-          ctx!.drawImage(img, 0, 0, canvas.width, canvas.height);
-          tryCompress(0.8, maxSizeKB);
-        } else {
-          // 品質を下げて再試行
-          tryCompress(Math.max(quality - 0.15, 0.1), maxSizeKB);
+        // 大型画像の場合のみサイズ調整
+        if (originalWidth > 4000 || originalHeight > 4000 || file.size > 30 * 1024 * 1024) {
+          maxWidth = 1000;
+          maxHeight = 1300;
+          console.log('📷 大型画像検出、最適サイズに調整');
         }
-      };
-      
-      // 最初は中程度の品質から開始（確実に小さくするため）
-      tryCompress(0.7);
+        
+        const { width, height } = calculateOptimalSize(originalWidth, originalHeight, maxWidth, maxHeight);
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        // 統一高品質設定
+        ctx!.imageSmoothingEnabled = true;
+        ctx!.imageSmoothingQuality = 'high';
+        ctx!.drawImage(img, 0, 0, width, height);
+        
+        // 統一品質での段階的圧縮
+        const tryUnifiedCompress = (quality: number): void => {
+          const base64 = canvas.toDataURL('image/jpeg', quality);
+          const estimatedSizeKB = Math.round(base64.length * 0.75 / 1024);
+          
+          console.log(`🔄 圧縮試行: 品質${Math.round(quality * 100)}%, サイズ: ${estimatedSizeKB}KB (環境: ${env.isWindows ? 'Windows' : env.isMac ? 'macOS' : 'Other'})`);
+          
+          if (estimatedSizeKB <= 300 || quality <= 0.3) {
+            console.log(`✅ 圧縮完了: ${Math.round(file.size/1024)}KB → ${estimatedSizeKB}KB`);
+            resolve(base64);
+          } else if (estimatedSizeKB > 800) {
+            // サイズを縮小して再試行
+            canvas.width = Math.round(canvas.width * 0.8);
+            canvas.height = Math.round(canvas.height * 0.8);
+            ctx!.clearRect(0, 0, canvas.width, canvas.height);
+            ctx!.drawImage(img, 0, 0, canvas.width, canvas.height);
+            tryUnifiedCompress(0.7);
+          } else {
+            // 品質を下げて再試行
+            tryUnifiedCompress(Math.max(quality - 0.15, 0.3));
+          }
+        };
+        
+        // 統一品質から開始
+        tryUnifiedCompress(0.8);
+        
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
     };
     
-    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+    img.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error(`画像の読み込みに失敗しました（環境: ${env.isWindows ? 'Windows' : 'Other'}）`));
+    };
+    
     img.src = URL.createObjectURL(file);
   });
 };
+
 
 // 最適なサイズを計算する関数
 const calculateOptimalSize = (originalWidth: number, originalHeight: number, maxWidth: number, maxHeight: number) => {
@@ -242,6 +309,88 @@ export default function ReceiptsPage() {
       router.push('/auth/signin');
     }
   }, [user, loading, router]);
+
+  // デバッグ情報をコンソールに表示
+  useEffect(() => {
+    if (user) {
+      console.log('=== ユーザー詳細デバッグ情報 ===');
+      console.log('User ID:', user.id);
+      console.log('User Email:', user.email);
+      console.log('User Metadata:', user.user_metadata);
+      console.log('App Metadata:', user.app_metadata);
+      console.log('=== ブラウザ環境情報 ===');
+      console.log('UserAgent:', navigator.userAgent);
+      console.log('Language:', navigator.language);
+      console.log('Viewport:', window.innerWidth + 'x' + window.innerHeight);
+      console.log('Connection:', navigator.connection?.effectiveType || 'unknown');
+      console.log('=================================');
+      
+      // 自動環境情報収集（テストユーザーに負担をかけない）
+      const collectEnvironmentInfo = async () => {
+        try {
+          const env = detectEnvironment();
+          const environmentInfo = {
+            userId: user.id,
+            userEmail: user.email,
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            platform: navigator.platform,
+            viewport: `${window.innerWidth}x${window.innerHeight}`,
+            screen: `${screen.width}x${screen.height}`,
+            colorDepth: screen.colorDepth,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            cookieEnabled: navigator.cookieEnabled,
+            onLine: navigator.onLine,
+            connection: navigator.connection?.effectiveType || 'unknown',
+            downlink: navigator.connection?.downlink || 'unknown',
+            memory: (navigator as any).deviceMemory || 'unknown',
+            hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+            // Canvas機能テスト
+            canvasSupport: (() => {
+              try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                return !!ctx;
+              } catch (e) {
+                return false;
+              }
+            })(),
+            // 環境判定結果
+            environment: {
+              isWindows: env.isWindows,
+              isMac: env.isMac,
+              isChrome: env.isChrome,
+              isEdge: env.isEdge
+            }
+          };
+          
+          console.log('🔍 環境情報を自動収集:', environmentInfo);
+          
+          // サーバーに環境情報を送信（エラーではないが診断用）
+          await fetch('/api/error-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: 'ENVIRONMENT_INFO', // 特殊な識別子
+              stack: null,
+              context: {
+                type: 'environment_collection',
+                data: environmentInfo
+              },
+              timestamp: new Date().toISOString(),
+              userAgent: navigator.userAgent
+            })
+          }).catch(() => {}); // 失敗してもスルー
+          
+        } catch (error) {
+          console.warn('環境情報収集でエラー:', error);
+        }
+      };
+      
+      // 環境情報収集を実行（非同期、エラーがあっても影響しない）
+      collectEnvironmentInfo();
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -1134,58 +1283,74 @@ export default function ReceiptsPage() {
     }
   };
 
-  // CSVエクスポート機能
-  const exportToCSV = () => {
-    const headers = ['日付', '店舗名', '金額', '説明', 'カテゴリ', '事業用', '信頼度', 'ファイル名'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredAndSortedReceipts.map(receipt => [
-        receipt.extracted_data?.date || formatDate(receipt.upload_date),
-        `"${receipt.extracted_data?.merchantName || ''}"`,
-        receipt.extracted_data?.amount || 0,
-        `"${receipt.extracted_data?.description || ''}"`,
-        `"${receipt.extracted_data?.classification?.categoryName || ''}"`,
-        receipt.extracted_data?.classification?.isBusiness ? '事業用' : '個人用',
-        receipt.extracted_data?.classification?.confidence ? `${Math.round(receipt.extracted_data.classification.confidence * 100)}%` : '',
-        `"${receipt.original_filename || receipt.filename}"`
-      ].join(','))
-    ].join('\n');
+  // CSVエクスポート機能（クロスプラットフォーム対応）
+  const exportToCSV = async () => {
+    try {
+      const headers = ['日付', '店舗名', '金額', '説明', 'カテゴリ', '事業用', '信頼度', 'ファイル名'];
+      const csvContent = [
+        headers.join(','),
+        ...filteredAndSortedReceipts.map(receipt => [
+          receipt.extracted_data?.date || formatDate(receipt.upload_date),
+          `"${receipt.extracted_data?.merchantName || ''}"`,
+          receipt.extracted_data?.amount || 0,
+          `"${receipt.extracted_data?.description || ''}"`,
+          `"${receipt.extracted_data?.classification?.categoryName || ''}"`,
+          receipt.extracted_data?.classification?.isBusiness ? '事業用' : '個人用',
+          receipt.extracted_data?.classification?.confidence ? `${Math.round(receipt.extracted_data.classification.confidence * 100)}%` : '',
+          `"${receipt.original_filename || receipt.filename}"`
+        ].join(','))
+      ].join('\n');
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `receipts_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const result = await universalDownload(csvContent, {
+        filename: `receipts_${new Date().toISOString().split('T')[0]}.csv`,
+        mimeType: 'text/csv;charset=utf-8;',
+        showSuccessMessage: true,
+        fallbackToNewTab: true
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || 'CSV エクスポートに失敗しました');
+      }
+
+      console.log(`✅ CSV エクスポート完了: ${filteredAndSortedReceipts.length}件のレシート`);
+    } catch (error) {
+      console.error('CSV エクスポートエラー:', error);
+      alert('CSV エクスポート中にエラーが発生しました');
+    }
   };
 
-  // JSONエクスポート機能
-  const exportToJSON = () => {
-    const exportData = {
-      exportDate: new Date().toISOString(),
-      totalReceipts: filteredAndSortedReceipts.length,
-      receipts: filteredAndSortedReceipts.map(receipt => ({
-        id: receipt.id,
-        filename: receipt.original_filename || receipt.filename,
-        uploadDate: receipt.upload_date,
-        extractedData: receipt.extracted_data,
-        classification: receipt.extracted_data?.classification,
-        imageUrl: receipt.image_url
-      }))
-    };
+  // JSONエクスポート機能（クロスプラットフォーム対応）
+  const exportToJSON = async () => {
+    try {
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        totalReceipts: filteredAndSortedReceipts.length,
+        receipts: filteredAndSortedReceipts.map(receipt => ({
+          id: receipt.id,
+          filename: receipt.original_filename || receipt.filename,
+          uploadDate: receipt.upload_date,
+          extractedData: receipt.extracted_data,
+          classification: receipt.extracted_data?.classification,
+          imageUrl: receipt.image_url
+        }))
+      };
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `receipts_${new Date().toISOString().split('T')[0]}.json`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const result = await universalDownload(JSON.stringify(exportData, null, 2), {
+        filename: `receipts_${new Date().toISOString().split('T')[0]}.json`,
+        mimeType: 'application/json',
+        showSuccessMessage: true,
+        fallbackToNewTab: true
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || 'JSON エクスポートに失敗しました');
+      }
+
+      console.log(`✅ JSON エクスポート完了: ${filteredAndSortedReceipts.length}件のレシート`);
+    } catch (error) {
+      console.error('JSON エクスポートエラー:', error);
+      alert('JSON エクスポート中にエラーが発生しました');
+    }
   };
 
   if (loading) {

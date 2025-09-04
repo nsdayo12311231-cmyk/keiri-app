@@ -531,7 +531,17 @@ export class ReceiptOCR {
 
   async extractWithGemini(imageBase64: string): Promise<{ ocrText: string; extractedData: ExtractedData }> {
     try {
+      // 🔍 Mac vs iPhone 問題解決: 動的MIMEタイプ検出
+      const mimeTypeMatch = imageBase64.match(/^data:image\/([a-z]+);base64,/);
+      const detectedMimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'jpeg';
       const base64Data = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+      
+      console.log('🖼️ 画像形式分析:', {
+        originalFormat: mimeTypeMatch ? mimeTypeMatch[1] : '不明',
+        detectedMimeType: detectedMimeType,
+        dataLength: base64Data.length,
+        platform: typeof navigator !== 'undefined' ? navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Other' : 'Server'
+      });
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`, {
         method: 'POST',
@@ -573,7 +583,7 @@ OCR精度向上のポイント：
               },
               {
                 inlineData: {
-                  mimeType: "image/jpeg",
+                  mimeType: `image/${detectedMimeType}`, // 🔧 動的MIMEタイプ
                   data: base64Data
                 }
               }
@@ -583,7 +593,22 @@ OCR精度向上のポイント：
       });
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        // 🔍 詳細エラー情報を取得（Mac vs iPhone 問題の調査）
+        let errorDetails = '';
+        try {
+          const errorResponse = await response.text();
+          errorDetails = errorResponse;
+          console.error('🚨 Gemini API 詳細エラー:', {
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries(response.headers.entries()),
+            body: errorResponse.substring(0, 1000)
+          });
+        } catch (parseError) {
+          console.error('エラーレスポンス解析失敗:', parseError);
+        }
+        
+        throw new Error(`Gemini API error: ${response.status} - ${errorDetails.substring(0, 200)}`);
       }
 
       const result: GeminiVisionResponse = await response.json();
